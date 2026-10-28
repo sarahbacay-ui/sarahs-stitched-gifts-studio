@@ -1,6 +1,8 @@
 /* Sarah's Studio tutorial browser. No API credentials are stored here. */
 (() => {
   const endpointKey = 'studio-tutorial-search-endpoint';
+  const defaultEndpoint = 'https://sarahs-studio-youtube.sarah-bacay.workers.dev';
+  const configuredEndpoint = () => localStorage.getItem(endpointKey) || defaultEndpoint;
   const favoritesKey = 'studio-tutorial-favorites-v1';
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const videoId = input => {
@@ -43,7 +45,7 @@
     document.getElementById('studio-tutorial-query').value = lastQuery || projectName;
     document.getElementById('studio-tutorial-category').value = category;
     document.addEventListener('keydown', escapeClose);
-    if (!localStorage.getItem(endpointKey)) setStatus('Saved YouTube links can play here now. To search YouTube inside the app, configure the free search service under Search setup.');
+    setStatus('Search knitting and crochet tutorials, watch videos here, or save favorites.');
   }
   const setStatus = message => { const el = document.getElementById('studio-tutorial-status'); if (el) el.textContent = message; };
   function play(video) {
@@ -95,12 +97,12 @@
   function showSettings() {
     const root = document.getElementById('studio-tutorial-results');
     root.innerHTML = `<div class="studio-tutorial-setup"><p>For free in-app search, deploy the optional Cloudflare Worker in this branch. Paste its HTTPS address below. Never paste a Google API key here.</p><label for="studio-tutorial-endpoint">Search service URL</label><input class="field" id="studio-tutorial-endpoint" type="url" placeholder="https://your-worker.workers.dev"><button class="button" id="studio-tutorial-save-endpoint" type="button">Save search setup</button></div>`;
-    document.getElementById('studio-tutorial-endpoint').value = localStorage.getItem(endpointKey) || '';
+    document.getElementById('studio-tutorial-endpoint').value = configuredEndpoint();
     document.getElementById('studio-tutorial-save-endpoint').onclick = () => {
       const value = document.getElementById('studio-tutorial-endpoint').value.trim().replace(/\/$/,'');
       if (value && (!value.startsWith('https://') || !/^https:\/\/[^/]+$/.test(value))) { setStatus('Enter a valid HTTPS service URL with no path.'); return; }
       if (value) localStorage.setItem(endpointKey, value); else localStorage.removeItem(endpointKey);
-      setStatus(value ? 'Search service saved on this device.' : 'Search service removed.'); root.replaceChildren();
+      setStatus(value ? 'Search service saved on this device.' : 'Restored default search service.'); root.replaceChildren();
     };
   }
   async function search() {
@@ -108,7 +110,7 @@
     const term = input.value.trim();
     if (!term) return;
     lastQuery = term; category = document.getElementById('studio-tutorial-category').value;
-    const endpoint = localStorage.getItem(endpointKey);
+    const endpoint = configuredEndpoint();
     if (!endpoint) { showSettings(); setStatus('Set up the free search service first.'); return; }
     const searchText = term + (category === 'both' ? ' knitting crochet tutorial' : ' ' + category + ' tutorial');
     setStatus('Searching tutorials...');
