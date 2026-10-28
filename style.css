@@ -57,3 +57,8 @@
 .studio-tutorial-result{grid-template-columns:100px minmax(0,1fr)}
 .studio-tutorial-result-buttons .button{padding:8px}
 }
+
+/* Tutorial widget: keep external YouTube fallback visually secondary. */
+.video-preview .video-watch-button{display:inline-flex;align-items:center;justify-content:center;font-weight:700;padding:10px 15px;border-radius:10px}
+.video-preview .video-external-link{font-size:12px;font-weight:400;color:#77746e;text-decoration:none;opacity:.8;padding:6px 2px}
+.video-preview .video-external-link:hover,.video-preview .video-external-link:focus-visible{text-decoration:underline;opacity:1}
