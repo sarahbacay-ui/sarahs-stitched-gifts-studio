@@ -21,7 +21,7 @@
   const readFavorites = () => { try { const x = JSON.parse(localStorage.getItem(favoritesKey)); return Array.isArray(x) ? x : []; } catch { return []; } };
   const writeFavorites = list => localStorage.setItem(favoritesKey, JSON.stringify(list));
   const saveProject = () => {};
-  let projectName = '', onSave = saveProject, results = [], category = 'both', lastQuery = '';
+  let projectName = '', onSave = saveProject, onSelect = null, results = [], category = 'both', lastQuery = '';
   const shell = () => document.getElementById('studio-tutorial-overlay');
   const close = () => { shell()?.remove(); document.removeEventListener('keydown', escapeClose); };
   function escapeClose(event) { if (event.key === 'Escape') close(); }
@@ -85,7 +85,7 @@
       const title = document.createElement('strong'); title.textContent = video.title;
       const channel = document.createElement('p'); channel.className = 'muted'; channel.textContent = video.channel || '';
       const controls = document.createElement('div'); controls.className = 'studio-tutorial-result-buttons';
-      const watch = document.createElement('button'); watch.className = 'button secondary small'; watch.textContent = 'Watch'; watch.onclick = () => play(video);
+      const watch = document.createElement('button'); watch.className = 'button small'; watch.textContent = 'Play on Home'; watch.onclick = () => { if(onSelect){const select = onSelect; close(); select(video);} else play(video); };
       const save = document.createElement('button'); save.className = 'button secondary small'; save.textContent = 'Save to project'; save.disabled = !projectName; save.onclick = () => { onSave({title:video.title,url:video.url}); setStatus('Saved to ' + projectName + '.'); };
       const favorite = document.createElement('button'); favorite.className = 'button secondary small';
       favorite.textContent = favorites.some(x => x.url === video.url) ? 'Remove favorite' : 'Favorite';
@@ -124,7 +124,8 @@
     } catch (error) { setStatus('Search failed: ' + error.message + '. Check Search setup or try again later.'); }
   }
   window.StudioTutorials = {
-    openSearch(options = {}) { projectName = options.projectName || ''; onSave = options.onSave || saveProject; open(); },
-    openVideo(video) { projectName = ''; onSave = saveProject; open(); play(video); }
+    openSearch(options = {}) { projectName = options.projectName || ''; onSave = options.onSave || saveProject; onSelect = options.onSelect || null; open(); },
+    openVideo(video) { projectName = ''; onSave = saveProject; onSelect = null; open(); play(video); },
+    videoId
   };
 })();
