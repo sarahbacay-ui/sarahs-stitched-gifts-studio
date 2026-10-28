@@ -62,3 +62,13 @@
 .video-preview .video-watch-button{display:inline-flex;align-items:center;justify-content:center;font-weight:700;padding:10px 15px;border-radius:10px}
 .video-preview .video-external-link{font-size:12px;font-weight:400;color:#77746e;text-decoration:none;opacity:.8;padding:6px 2px}
 .video-preview .video-external-link:hover,.video-preview .video-external-link:focus-visible{text-decoration:underline;opacity:1}
+
+/* Embedded tutorial playback stays in the Home dashboard next to pattern and counter. */
+.video-card .video-preview{display:block;min-height:0;padding:12px;text-align:left}
+.video-card .inline-video-content{width:100%;min-width:0}
+.video-card .inline-video-content > strong{display:block;font-size:14px;line-height:1.45;margin-bottom:10px}
+.video-card .studio-inline-player{position:relative;width:100%;aspect-ratio:16/9;border-radius:10px;background:#111;overflow:hidden}
+.video-card .studio-inline-player iframe{display:block;width:100%;height:100%;border:0}
+.video-card .studio-inline-help{font-size:12px;line-height:1.45;margin:8px 0 3px}
+.video-card .video-external-link{display:inline-block;margin-top:5px;font-size:11px;color:#77746e;opacity:.7}
+@media(max-width:650px){.video-card .video-preview{padding:10px}.video-card .studio-inline-help{font-size:11px}}
