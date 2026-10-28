@@ -26,3 +26,7 @@ Unzip and review the files. Upload to GitHub only after approving this developme
 - Dates and gifts are saved with existing IndexedDB app data.
 - Reminders are recorded as dates, but automatic notification delivery is not implemented.
 - No changes were made to the live GitHub Pages website or repository.
+
+
+## Version 3.3 mobile navigation
+On iPhone-width screens, the bottom bar is Home, Projects, Yarn, More. More opens the remaining app sections, including Gift Planner, Ideas & Requests, Tools, Patterns, Stitch Counters, Completed, Backup & Sync, and Settings. The iPad/desktop sidebar is unchanged. The service worker cache is versioned to refresh updated files.
