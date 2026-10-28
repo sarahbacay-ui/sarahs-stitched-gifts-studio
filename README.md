@@ -1,3 +1,32 @@
+# Sarah's Stitched Gifts Studio | Version 3.1 (development only)
+
+**No app was deployed, no Dropbox account was connected, and no GitHub repository was modified.**
+
+## Version 3.1 authentication changes
+
+- The OAuth PKCE redirect URI is explicitly pinned to `https://sarahbacay-ui.github.io/sarahs-stitched-gifts-studio/`, including the final slash.
+- Dropbox login refuses to start on a different address (including local `file://` previews), avoiding redirect mismatches.
+- The same address is checked when processing an OAuth callback.
+- The public Dropbox App key is **not included** because it has not been provided. The existing Backup & Sync page lets the owner enter it on their device when ready. **Never enter the App secret.**
+- The approved dashboard's markup and stylesheet are unchanged from V3.
+
+## Before a future login test
+
+1. Review and approve a separate deployment. This ZIP has not been uploaded to GitHub.
+2. Ensure the hosted URL exactly matches the registered Dropbox OAuth redirect URI.
+3. Open Backup & Sync and enter the Dropbox **App key** (public identifier only).
+4. Export a local JSON backup before testing synchronization.
+5. Connect Dropbox only after explicit authorization.
+
+## Known limitations
+
+- Manual whole-database synchronization only; no automatic sync or per-record conflict resolution.
+- Backups are generated on uploads, not on a schedule.
+- Short-lived Dropbox access token stored in sessionStorage; reconnecting may be required.
+- The current Dropbox sync UI can replace an entire local or remote snapshot **after confirmation**. Do not use with important live data until granular conflict resolution is implemented.
+- No live Dropbox OAuth or iPhone/iPad testing has occurred.
+- Backup data in Dropbox is not end-to-end encrypted by the app.
+
 # Sarah’s Stitched Gifts Studio | Dropbox integration milestone v3
 
 This is a **development build** based on v2. No accounts were created, no Dropbox connection was made, and the approved dashboard layout was not intentionally modified.
