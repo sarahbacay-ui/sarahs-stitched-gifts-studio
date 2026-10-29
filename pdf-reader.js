@@ -13,14 +13,15 @@ export function insertMark(state,page,rect){
  if(w<.008||h<.008)return false;
  (state.marks[String(page)]??=[]).push({x,y,w,h});return true;
 }
-export async function openPdfReader({url,reading,onChange,onClose,onCounter}){
+export async function openPdfReader({url,reading,onChange,onClose,onCounter,mount=null,onMount}){
  const state=normalizeReaderState(reading);
  let pdf=null,api=null,closed=false,serial=0,rendering=false;
- const outer=element('div','studio-reader-backdrop');
+ const inline=!!mount;
+ const outer=element('div',inline?'studio-reader-inline':'studio-reader-backdrop');
  const dialog=element('section','studio-reader');
- dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-label','PDF pattern reader');
+ dialog.setAttribute('role',inline?'region':'dialog');if(!inline)dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-label','PDF pattern reader');
  const top=element('div','studio-reader-top');
- const close=element('button','button secondary small','Close');close.type='button';
+ const close=element('button','button secondary small',inline?'Hide PDF':'Close');close.type='button';
  top.append(element('strong','', 'Original Pattern Reader'),close);
  const status=element('p','studio-reader-status','Loading original PDF…');status.setAttribute('role','status');
  const toolbar=element('div','studio-reader-toolbar');
@@ -39,15 +40,15 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter}){
  counterControls.append(down,counter,up);
  aside.append(element('strong','','Row Counter'),section,counterControls,countDescription,
  element('p','muted','Reading position and highlights save automatically with this project on this device. Cross-device restore requires backup and sync.'));
- area.append(aside);
+ if(!inline)area.append(aside);
  const fallback=element('div','studio-reader-fallback');
  fallback.hidden=true;
  const fallbackPick=element('input','field');fallbackPick.type='file';fallbackPick.accept='.pdf,application/pdf';
  fallback.append(element('p','','Dropbox could not open the PDF. Select the same PDF from Files instead.'),fallbackPick);
- dialog.append(top,status,toolbar,tools,area,fallback);outer.append(dialog);document.body.append(outer);
+ dialog.append(top,status,toolbar,tools,area,fallback);outer.append(dialog);(mount||document.body).append(outer);
  const save=()=>onChange(structuredClone(state));
  const countRefresh=()=>{
-   const c=onCounter.get();section.textContent=c.section||'';counter.textContent=String(c.count||0);
+   const c=onCounter?.get?.()||{section:'',count:0,rows:0};section.textContent=c.section||'';counter.textContent=String(c.count||0);
    countDescription.textContent=c.rows?'of '+c.rows+' rows':'No active section';
    down.disabled=up.disabled=!c.rows;
  };
@@ -75,7 +76,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter}){
    if(pdf)pdf.destroy().catch(()=>{});
  };
  close.onclick=closeReader;
- outer.onclick=e=>{if(e.target===outer)closeReader()};
+ if(!inline)outer.onclick=e=>{if(e.target===outer)closeReader()};
  const paint=async()=>{
    if(!pdf||closed)return;
    const token=++serial;rendering=true;status.textContent='Rendering page '+state.page+'…';
@@ -137,6 +138,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter}){
    catch(e){status.textContent='Could not open selected PDF: '+e.message}
  };
  countRefresh();
+ onMount?.({root:outer,close:closeReader,refreshCounter:countRefresh});
  try{
    if(!url)throw Error('No saved Dropbox PDF link.');
    const db=typeof StudioDropbox!=='undefined'?StudioDropbox:globalThis.StudioDropbox;
