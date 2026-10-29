@@ -5,7 +5,7 @@ const element=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.clas
 export function normalizeReaderState(raw={}){
  const x=raw&&typeof raw==='object'?raw:{};
  return {page:Math.max(1,Math.floor(Number(x.page)||1)),zoom:clamp(Number(x.zoom)||1,.7,2.5),
- rotation:([0,90,180,270].includes(Number(x.rotation))?Number(x.rotation):0),mode:x.mode==='highlight'?'highlight':'ruler',
+ rotation:([0,90,180,270].includes(Number(x.rotation))?Number(x.rotation):0),mode:['highlight','ruler','pan'].includes(x.mode)?x.mode:'pan',
  ruler:x.ruler&&typeof x.ruler==='object'?structuredClone(x.ruler):{},marks:x.marks&&typeof x.marks==='object'?structuredClone(x.marks):{}};
 }
 export function insertMark(state,page,rect){
@@ -28,8 +28,8 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter}){
  const zoomOut=element('button','button secondary small','Zoom −'),zoomStatus=element('span','','100%'),zoomIn=element('button','button secondary small','Zoom +'),rotate=element('button','button secondary small','Rotate');
  toolbar.append(prev,label,next,zoomOut,zoomStatus,zoomIn,rotate);
  const tools=element('div','studio-reader-toolbar');
- const ruler=element('button','button secondary small','Ruler'),highlight=element('button','button secondary small','Highlight'),undo=element('button','button secondary small','Undo highlight');
- tools.append(ruler,highlight,undo);
+ const pan=element('button','button secondary small','Pan / Scroll'),ruler=element('button','button secondary small','Ruler'),highlight=element('button','button secondary small','Highlight'),undo=element('button','button secondary small','Undo highlight');
+ tools.append(pan,ruler,highlight,undo);
  const area=element('div','studio-reader-workspace');
  const viewport=element('div','studio-reader-scroll'),sheet=element('div','studio-reader-sheet'),overlay=element('div','studio-reader-overlay');
  viewport.append(sheet);area.append(viewport);
@@ -64,8 +64,11 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter}){
    const line=element('div','studio-reader-ruler','Reading ruler');
    line.style.top=clamp(Number(state.ruler[key]??.32),0,1)*100+'%';overlay.append(line);
    undo.disabled=!(state.marks[key]?.length);
+   pan.setAttribute('aria-pressed',String(state.mode==='pan'));
    ruler.setAttribute('aria-pressed',String(state.mode==='ruler'));
    highlight.setAttribute('aria-pressed',String(state.mode==='highlight'));
+   // Native touch scrolling works in Pan mode; annotation gestures stay opt-in.
+   overlay.style.pointerEvents=state.mode==='pan'?'none':'auto';
  };
  const closeReader=()=>{
    if(closed)return;closed=true;serial++;outer.remove();onClose?.();
@@ -99,13 +102,14 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter}){
  zoomOut.onclick=()=>{state.zoom=clamp(Math.round((state.zoom-.2)*10)/10,.7,2.5);save();paint()};
  zoomIn.onclick=()=>{state.zoom=clamp(Math.round((state.zoom+.2)*10)/10,.7,2.5);save();paint()};
  rotate.onclick=()=>{state.rotation=(state.rotation+90)%360;save();paint()};
+ pan.onclick=()=>{state.mode='pan';save();draw()};
  ruler.onclick=()=>{state.mode='ruler';save();draw()};
  highlight.onclick=()=>{state.mode='highlight';save();draw()};
  undo.onclick=()=>{state.marks[String(state.page)]?.pop();save();draw()};
  let pointer=null;
  const locate=e=>{const rect=overlay.getBoundingClientRect();return {x:clamp((e.clientX-rect.left)/rect.width,0,1),y:clamp((e.clientY-rect.top)/rect.height,0,1)}};
  overlay.onpointerdown=e=>{
-   if(rendering||!pdf)return;
+   if(rendering||!pdf||state.mode==='pan')return;
    e.preventDefault();overlay.setPointerCapture(e.pointerId);
    const at=locate(e);pointer={id:e.pointerId,begin:at,end:at};
    if(state.mode==='ruler'){state.ruler[String(state.page)]=at.y;draw()}
