@@ -1,1 +1,17 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#f7f3ed"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Stitched Studio"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="app-icon.png" type="image/png"><title>Sarah's Stitched Gifts Studio</title><link rel="stylesheet" href="style.css"></head><body><div id="app"></div><script src="persistence.js"></script><script src="dropbox.js"></script><script src="tutorials.js"></script><script type="module" src="app.js"></script></body></html>
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#f7f3ed"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Stitched Studio"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="app-icon.png" type="image/png"><title>Sarah's Stitched Gifts Studio</title><link rel="stylesheet" href="style.css"></head><body><div id="app"><p class="studio-startup-message" role="status">Opening Sarah's Studio…</p></div><script>
+(function(){
+ function showFailure(message){
+  var root=document.getElementById('app');
+  if(!root||root.querySelector('.shell'))return;
+  var card=document.createElement('section');card.className='studio-startup-failure';
+  var title=document.createElement('h2');title.textContent="Sarah's Studio could not finish opening";
+  var details=document.createElement('p');details.textContent=message||'A startup error occurred.';
+  var help=document.createElement('p');help.textContent='Your saved projects have not been cleared. Do not remove website data.';
+  var retry=document.createElement('button');retry.textContent='Try opening again';retry.onclick=function(){location.reload();};
+  card.append(title,details,help,retry);root.replaceChildren(card);
+ }
+ window.addEventListener('error',function(event){showFailure(event.message||'The app failed to load.');});
+ window.addEventListener('unhandledrejection',function(event){showFailure(event.reason&&event.reason.message||'A required operation failed.');});
+ window.StudioStartupFailure=showFailure;
+})();
+</script><script src="persistence.js"></script><script src="dropbox.js"></script><script src="tutorials.js"></script><script type="module" src="app.js"></script></body></html>
