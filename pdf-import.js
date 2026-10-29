@@ -35,6 +35,22 @@ function reconstruct(items, width, columns) {
   return result;
 }
 
+// Page numbers are 1-based PDF file pages, not page labels printed within the pattern.
+function selectedPages(input, total) {
+  const text = input.trim();
+  if (!text) return Array.from({length:total}, (_,i)=>i+1);
+  const selected = new Set();
+  for (const token of text.split(',')) {
+    const part = token.trim();
+    const match = /^(\d+)(?:\s*-\s*(\d+))?$/.exec(part);
+    if (!match) throw new Error('Use page numbers such as 6-8 or 2, 5, 7-9.');
+    const start = Number(match[1]), end = match[2] ? Number(match[2]) : start;
+    if (start<1 || end<start || end>total) throw new Error('Page selection must be between 1 and '+total+'.');
+    for (let n=start;n<=end;n++) selected.add(n);
+  }
+  return [...selected].sort((a,b)=>a-b);
+}
+
 function control(tag, props, label) {
   const node = document.createElement(tag);
   Object.assign(node, props || {});
@@ -59,6 +75,11 @@ export async function openPdfImporter(onSave) {
   for (let n=1; n<=3; n++) columns.append(control('option', { value: String(n) }, String(n)));
   label.append(columns);
   options.append(label);
+  const pageLabel = control('label', {}, 'Pages to convert (blank = all): ');
+  const pageRange = control('input', { type:'text', className:'field', placeholder:'e.g. 6-8 or 2, 5, 7-9' });
+  pageRange.setAttribute('aria-label','PDF file page numbers to convert');
+  pageLabel.append(pageRange);
+  options.append(pageLabel);
   const status = control('p', { className: 'help', role: 'status' }, 'Choose a PDF to extract its instructions.');
   const preview = control('div', { className: 'pdf-import-preview' });
   const actions = control('div', { className: 'row pdf-import-actions' });
@@ -95,6 +116,7 @@ export async function openPdfImporter(onSave) {
     status.textContent = 'Review the text and column order before saving. Charts, symbols, and scanned pages may need manual correction.';
   };
   columns.onchange = doExtract;
+  pageRange.onchange = () => { if (picker.files?.[0]) picker.onchange(); };
   picker.onchange = async () => {
     const file = picker.files?.[0];
     if (!file) return;
@@ -111,7 +133,8 @@ export async function openPdfImporter(onSave) {
       pages = [];
       let count = 0;
       try {
-        for (let p=1; p<=doc.numPages; p++) {
+        const selected = selectedPages(pageRange.value, doc.numPages);
+        for (const p of selected) {
           const page = await doc.getPage(p);
           const text = await page.getTextContent();
           const viewport = page.getViewport({scale:1});
@@ -122,7 +145,7 @@ export async function openPdfImporter(onSave) {
       if (!count) throw new Error('No selectable text was found. This PDF may be scanned and require OCR, which is not available in this version.');
       loading = false;
       await doExtract();
-      status.textContent = 'Read '+pages.length+' page(s). Review the extracted text, especially column order, charts, and symbols.';
+      status.textContent = 'Extracted '+pages.length+' selected page(s). Review the text, especially column order, charts, and symbols.';
     } catch (err) {
       pages = null;
       status.textContent = 'Could not extract this PDF: '+(err?.message || String(err));
