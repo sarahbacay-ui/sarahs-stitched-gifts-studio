@@ -136,3 +136,17 @@
 /* In Pan mode the annotation overlay does not catch touches, so the PDF scrolls normally. */
 .studio-reader-scroll{touch-action:pan-x pan-y;-webkit-overflow-scrolling:touch}
 .studio-reader-toolbar button[aria-pressed="true"]{font-weight:700}
+
+/* Embedded PDF stays in Home > Pattern alongside independent video and row counter widgets. */
+.pdf-inline-actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.home-pdf-reader-mount:empty{display:none}
+.home-pdf-reader-mount:not(:empty){margin:12px 0;min-width:0}
+.studio-reader-inline{width:100%;min-width:0}
+.studio-reader-inline .studio-reader{height:auto;max-height:none;width:100%;padding:10px;border:1px solid #d8d2c6;border-radius:10px;gap:8px;box-shadow:none;overflow:visible}
+.studio-reader-inline .studio-reader-workspace{display:block;min-height:0}
+.studio-reader-inline .studio-reader-scroll{height:clamp(320px,50dvh,650px);min-height:0;max-height:650px;overflow:auto;-webkit-overflow-scrolling:touch}
+.studio-reader-inline .studio-reader-side{display:none}
+.studio-reader-inline .studio-reader-toolbar{display:flex;flex-wrap:wrap;gap:5px}
+.studio-reader-inline .studio-reader-toolbar button{font-size:12px;min-height:38px}
+.studio-reader-inline .studio-reader-status{line-height:1.45;overflow-wrap:anywhere}
+@media(max-width:650px){.studio-reader-inline .studio-reader{padding:8px}.studio-reader-inline .studio-reader-scroll{height:55dvh;max-height:520px}.studio-reader-inline .studio-reader-toolbar{gap:4px}}
