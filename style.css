@@ -99,3 +99,31 @@
 
 /* Bulk-select imported lines without confusing completion checkmarks */
 .pattern-bulk-actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px}.pattern-select-label{display:inline-flex;align-items:center;gap:4px;border:1px solid #c8b9ae;padding:5px 7px;border-radius:6px;font-size:12px;white-space:nowrap;cursor:pointer}.pattern-select-label input{margin:0}.pattern-bulk-actions button:disabled{opacity:.6}
+
+
+/* Guided PDF import: independent page preparation and touch-friendly selection */
+.pdf-import-stage{margin:14px 0;padding:12px;border:1px solid #d8d4cb;border-radius:10px}
+.pdf-import-stage[hidden]{display:none}
+.pdf-import-stage h3{margin:0 0 12px}
+.pdf-import-stage > .field{display:block;max-width:420px;margin:8px 0 14px}
+.pdf-import-stage > label{display:block;font-weight:600;margin-top:12px}
+.pdf-import-stage > button{margin:6px 8px 6px 0}
+.pdf-page-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,390px),1fr));gap:16px}
+.pdf-page-card{padding:12px;border:1px solid #d8d4cb;border-radius:10px;min-width:0}
+.pdf-page-card h4{margin:0 0 10px}
+.pdf-page-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.pdf-page-controls label{display:inline-flex;align-items:center;gap:6px}
+.pdf-page-controls select{min-width:70px;width:auto}
+.pdf-page-canvas-wrap{position:relative;display:block;width:100%;line-height:0;user-select:none}
+.pdf-page-canvas{width:100%;height:auto;display:block;border:1px solid #b9b2a7;background:#fff}
+.pdf-crop-selection{position:absolute;box-sizing:border-box;border:3px solid #4d814e;background:#8ec78b24;pointer-events:none}
+.pdf-split-line{position:absolute;top:0;height:100%;width:3px;transform:translateX(-50%);background:#277d30;border-left:1px dashed white}
+.pdf-crop-draw-surface{position:absolute;inset:0;cursor:crosshair;touch-action:none}
+.pdf-crop-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}
+.pdf-crop-fields label{display:grid;gap:5px;font-size:12px}
+.pdf-crop-fields input{min-width:0;width:100%;box-sizing:border-box;padding:8px}
+.pdf-split-controls{display:grid;gap:8px;margin:10px 0}
+.pdf-split-controls label{display:grid;gap:4px;font-size:13px}
+.pdf-split-controls input{width:100%}
+.pdf-import-review{display:block;width:100%;min-height:360px;box-sizing:border-box;white-space:pre-wrap;font:14px/1.5 ui-monospace,SFMono-Regular,monospace}
+@media(max-width:650px){.pdf-import-stage{padding:10px}.pdf-page-cards{display:block}.pdf-page-card{margin:12px 0}.pdf-crop-fields{gap:4px}.pdf-crop-fields label{font-size:11px}.pdf-crop-fields input{padding:7px 3px;font-size:14px}}
