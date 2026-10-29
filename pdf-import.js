@@ -140,7 +140,13 @@ export async function openPdfImporter(onSave, options={}) {
   const getWorker = async () => {
     if (!worker) {
       setProgress('Loading free OCR for scanned pages. The first download may take a moment...');
-      const {createWorker} = await import(TESSERACT);
+      const ocrModule = await import(TESSERACT);
+      // The CDN's ESM bundle exposes the worker factory through its default export
+      // in some builds, instead of as a named export.
+      const createWorker = ocrModule.createWorker || ocrModule.default?.createWorker;
+      if (typeof createWorker !== 'function') {
+        throw new Error('OCR library loaded but does not expose createWorker. Please report this error.');
+      }
       worker = await createWorker('eng');
     }
     return worker;
