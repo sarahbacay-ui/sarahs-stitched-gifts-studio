@@ -47,6 +47,13 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  fallback.append(element('p','','Dropbox could not open the PDF. Select the same PDF from Files instead.'),fallbackPick);
  dialog.append(top,status,toolbar,tools,area,fallback);outer.append(dialog);(mount||document.body).append(outer);
  const save=()=>onChange(structuredClone(state));
+ // iPad Safari may cancel an active pointer when scrolling or backgrounding.
+ // Save the last position on cancellation, hide and close, not just pointerup.
+ const onVisibility=()=>{if(document.visibilityState==='hidden'&&!closed)save();};
+ const onPageHide=()=>{if(!closed)save();};
+ document.addEventListener('visibilitychange',onVisibility);
+ window.addEventListener('pagehide',onPageHide);
+ let rulerDrag=null;
  const countRefresh=()=>{
    const c=onCounter?.get?.()||{section:'',count:0,rows:0};section.textContent=c.section||'';counter.textContent=String(c.count||0);
    countDescription.textContent=c.rows?'of '+c.rows+' rows':'No active section';
@@ -62,8 +69,37 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
      Object.assign(rect.style,{left:mark.x*100+'%',top:mark.y*100+'%',width:mark.w*100+'%',height:mark.h*100+'%'});
      overlay.append(rect);
    }
-   const line=element('div','studio-reader-ruler','Reading ruler');
-   line.style.top=clamp(Number(state.ruler[key]??.32),0,1)*100+'%';overlay.append(line);
+   const line=element('div','studio-reader-ruler','Drag ruler to mark your place');
+   line.style.top=clamp(Number(state.ruler[key]??.32),0,1)*100+'%';
+   // The ruler remains draggable even when Pan / Scroll mode is selected.
+   line.style.pointerEvents='auto';
+   line.style.touchAction='none';
+   line.setAttribute('role','slider');
+   line.setAttribute('aria-label','Reading ruler position');
+   line.setAttribute('aria-valuemin','0');line.setAttribute('aria-valuemax','100');
+   line.setAttribute('aria-valuenow',String(Math.round(clamp(Number(state.ruler[key]??.32),0,1)*100)));
+   const moveRuler=e=>{
+     const bounds=overlay.getBoundingClientRect();
+     const y=clamp((e.clientY-bounds.top)/bounds.height,0,1);
+     state.ruler[key]=y;line.style.top=y*100+'%';
+     line.setAttribute('aria-valuenow',String(Math.round(y*100)));
+   };
+   line.onpointerdown=e=>{
+     e.preventDefault();e.stopPropagation();
+     line.setPointerCapture(e.pointerId);
+     rulerDrag=e.pointerId;moveRuler(e);save();
+   };
+   line.onpointermove=e=>{if(rulerDrag===e.pointerId){e.stopPropagation();moveRuler(e);}};
+   const finishRuler=e=>{if(rulerDrag!==e.pointerId)return;e.stopPropagation();moveRuler(e);rulerDrag=null;save();};
+   line.onpointerup=finishRuler;
+   line.onpointercancel=finishRuler;
+   line.onkeydown=e=>{
+     const delta=e.key==='ArrowUp'?-0.01:e.key==='ArrowDown'?0.01:0;
+     if(!delta)return;e.preventDefault();
+     state.ruler[key]=clamp(Number(state.ruler[key]??.32)+delta,0,1);save();draw();
+   };
+   line.tabIndex=0;
+   overlay.append(line);
    undo.disabled=!(state.marks[key]?.length);
    pan.setAttribute('aria-pressed',String(state.mode==='pan'));
    ruler.setAttribute('aria-pressed',String(state.mode==='ruler'));
@@ -72,7 +108,12 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    overlay.style.pointerEvents=state.mode==='pan'?'none':'auto';
  };
  const closeReader=()=>{
-   if(closed)return;closed=true;serial++;outer.remove();onClose?.();
+   if(closed)return;
+   save();
+   closed=true;serial++;
+   document.removeEventListener('visibilitychange',onVisibility);
+   window.removeEventListener('pagehide',onPageHide);
+   outer.remove();onClose?.();
    if(pdf)pdf.destroy().catch(()=>{});
  };
  close.onclick=closeReader;
@@ -113,7 +154,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    if(rendering||!pdf||state.mode==='pan')return;
    e.preventDefault();overlay.setPointerCapture(e.pointerId);
    const at=locate(e);pointer={id:e.pointerId,begin:at,end:at};
-   if(state.mode==='ruler'){state.ruler[String(state.page)]=at.y;draw()}
+   if(state.mode==='ruler'){state.ruler[String(state.page)]=at.y;save();draw()}
  };
  overlay.onpointermove=e=>{if(!pointer||pointer.id!==e.pointerId)return;pointer.end=locate(e);if(state.mode==='ruler'){state.ruler[String(state.page)]=pointer.end.y;draw()}};
  overlay.onpointerup=e=>{
@@ -123,7 +164,13 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    else insertMark(state,state.page,{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)});
    save();draw();
  };
- overlay.onpointercancel=()=>{pointer=null;draw()};
+ overlay.onpointercancel=e=>{
+   if(pointer&&pointer.id===e.pointerId){
+     if(state.mode==='ruler')state.ruler[String(state.page)]=pointer.end.y;
+     pointer=null;save();
+   }
+   draw();
+ };
  const load=async bytes=>{
    if(!api){api=await import(PDFJS);api.GlobalWorkerOptions.workerSrc=WORKER}
    if(pdf)await pdf.destroy();
