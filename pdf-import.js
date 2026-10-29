@@ -94,7 +94,7 @@ export async function openPdfImporter(onSave) {
   panel.append(heading, intro, picker, options, status, preview, actions);
   overlay.append(panel);
   document.body.append(overlay);
-  const close = () => { overlay.remove(); };
+  const close = () => { if (loading) return; overlay.remove(); if (worker) { const activeWorker = worker; worker = null; activeWorker.terminate().catch(()=>{}); } };
   cancel.onclick = close;
   let latest = [], loading = false, worker = null;
   const display = (pages, count, ocrCount) => {
