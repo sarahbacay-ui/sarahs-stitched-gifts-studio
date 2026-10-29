@@ -79,7 +79,7 @@ export async function openPdfImporter(onSave, options={}) {
   const importOptions = control('div', { className: 'pdf-import-options' });
   const label = control('label', {}, 'Printed columns per page: ');
   const columns = control('select', { className: 'field' });
-  for (let n=1; n<=3; n++) columns.append(control('option', { value: String(n) }, String(n)));
+  for (let n=1; n<=4; n++) columns.append(control('option', { value: String(n) }, String(n)));
   label.append(columns);
   importOptions.append(label);
   const pageLabel = control('label', {}, 'Pages to convert (blank = all): ');
@@ -116,26 +116,20 @@ export async function openPdfImporter(onSave, options={}) {
     useSaved.textContent=busy?'Importing from Dropbox…':'Import from saved Dropbox PDF';
     picker.disabled=busy;
   };
+  // Combine each page's columns before moving to the next page.
+  const orderedLines = pages => pages.flatMap(page => page.flatMap(lines => lines.length ? [...lines, ''] : []));
   const display = (pages, count, ocrCount) => {
-    const n = Number(columns.value);
-    latest = Array.from({length:n},()=>[]);
-    for (const page of pages) {
-      page.forEach((lines,i)=> {
-        if (latest[i].length && lines.length) latest[i].push('');
-        latest[i].push(...lines);
-      });
-    }
+    const lines = orderedLines(pages);
+    latest = [lines];
     preview.replaceChildren();
-    latest.forEach((lines,i) => {
-      const section = control('label', {className:'pdf-preview-column'});
-      section.append(control('strong', {}, 'Column '+(i+1)));
-      const area = control('textarea', {className:'field', rows:12, value:lines.join('\n')});
-      area.setAttribute('aria-label','Extracted instructions, column '+(i+1));
-      section.append(area);
-      preview.append(section);
-    });
-    save.disabled = !latest.some(lines=>lines.some(x=>x.trim()));
-    setProgress('Complete: processed '+count+' selected page(s), OCR used on '+ocrCount+'. Review stitch counts and column order before saving.',100);
+    const section = control('label', {className:'pdf-preview-column'});
+    section.append(control('strong', {}, 'Instructions in reading order: page by page, left column to right column'));
+    const area = control('textarea', {className:'field', rows:12, value:lines.join('\n').trim()});
+    area.setAttribute('aria-label','Extracted instructions in reading order');
+    section.append(area);
+    preview.append(section);
+    save.disabled = !lines.some(x=>x.trim());
+    setProgress('Complete: processed '+count+' selected page(s), OCR used on '+ocrCount+'. Instructions are ordered left to right by column on each page, then the next page. Review stitch counts and row order before saving.',100);
   };
   const getWorker = async () => {
     if (!worker) {
