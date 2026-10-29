@@ -96,3 +96,6 @@
 
 /* Working pattern row totals and removal */
 .pattern-row-summary{margin:8px 0 14px;padding:10px 0;display:grid;gap:5px}.pattern-row-summary .progress-track{max-width:100%}.pattern-row-summary .muted{font-size:12px;line-height:1.4}.pattern-delete{border:1px solid #c8b9ae;background:transparent;border-radius:6px;color:#674b42;font-size:12px;padding:5px 7px;flex:none;cursor:pointer}.pattern-delete:focus-visible{outline:2px solid #56724c}@media(max-width:650px){.pattern-delete{font-size:12px;padding:7px 6px}}
+
+/* Bulk-select imported lines without confusing completion checkmarks */
+.pattern-bulk-actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px}.pattern-select-label{display:inline-flex;align-items:center;gap:4px;border:1px solid #c8b9ae;padding:5px 7px;border-radius:6px;font-size:12px;white-space:nowrap;cursor:pointer}.pattern-select-label input{margin:0}.pattern-bulk-actions button:disabled{opacity:.6}
