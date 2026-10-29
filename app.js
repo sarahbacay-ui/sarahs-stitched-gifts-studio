@@ -93,6 +93,7 @@ function action(a){if(a==='mobileMore'){mobileMoreOpen=!mobileMoreOpen;render();
  import('./pdf-reader.js').then(m=>m.openPdfReader({
    url:p.dropboxPdfUrl,
    reading:p.pdfReading||{},
+   onClose:()=>render(),
    onChange:reading=>{p.pdfReading=reading;state.updated=new Date().toISOString();persist()},
    onCounter:{
      get:()=>{const current=sec(p);return {section:current?.name||'No active section',count:current?.count||0,rows:current?.rows||0}},
