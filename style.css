@@ -132,3 +132,7 @@
 .studio-reader-count-controls .round{width:38px;height:38px;min-height:38px}
 .studio-reader-toolbar button{padding:6px}
 }
+
+/* In Pan mode the annotation overlay does not catch touches, so the PDF scrolls normally. */
+.studio-reader-scroll{touch-action:pan-x pan-y;-webkit-overflow-scrolling:touch}
+.studio-reader-toolbar button[aria-pressed="true"]{font-weight:700}
