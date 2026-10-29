@@ -14,4 +14,23 @@
  window.addEventListener('unhandledrejection',function(event){showFailure(event.reason&&event.reason.message||'A required operation failed.');});
  window.StudioStartupFailure=showFailure;
 })();
+</script><script>
+(function(){
+ if(!('serviceWorker' in navigator))return;
+ var refreshing=false;
+ navigator.serviceWorker.addEventListener('controllerchange',function(){
+  if(refreshing)return;
+  refreshing=true;
+  location.reload();
+ });
+ function checkForUpdates(){
+  navigator.serviceWorker.getRegistration('./').then(function(reg){
+   if(reg)reg.update().catch(function(){});
+  }).catch(function(){});
+ }
+ window.addEventListener('pageshow',checkForUpdates);
+ document.addEventListener('visibilitychange',function(){
+  if(document.visibilityState==='visible')checkForUpdates();
+ });
+})();
 </script><script src="persistence.js"></script><script src="dropbox.js"></script><script src="tutorials.js"></script><script type="module" src="app.js"></script></body></html>
