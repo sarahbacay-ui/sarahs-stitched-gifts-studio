@@ -29,7 +29,7 @@ const assert = require('node:assert/strict');
    assert.equal(await page.locator('[data-finishing-task]').first().isChecked(),true,'finishing task persists');
    assert.equal(await page.locator('.video-card').count(),1,'video widget exists');
    assert.equal(await page.locator('.pattern-card').count(),1,'pattern widget exists');
-   if(name==='mobile')assert.equal(await page.locator('.mobile-nav').count() > 0 || await page.locator('[data-action="mobileMore"]').count()>0,true,'mobile navigation exists');
+   if(name==='mobile')assert.equal(await page.locator('.bottom-nav').count() > 0 || await page.locator('[data-action="mobileMore"]').count()>0,true,'mobile navigation exists');
    assert.deepEqual(errors,[],'no uncaught JavaScript errors');
    console.log('PASS '+name);
   }catch(e){failures.push(name+': '+e.stack);console.error('FAIL '+name,e)}
