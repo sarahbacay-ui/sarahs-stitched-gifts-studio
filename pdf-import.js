@@ -79,7 +79,7 @@ export async function openPdfImporter(onSave, options={}) {
   const importOptions = control('div', { className: 'pdf-import-options' });
   const label = control('label', {}, 'Printed columns per page: ');
   const columns = control('select', { className: 'field' });
-  for (let n=1; n<=3; n++) columns.append(control('option', { value: String(n) }, String(n)));
+  for (let n=1; n<=4; n++) columns.append(control('option', { value: String(n) }, String(n)));
   label.append(columns);
   importOptions.append(label);
   const pageLabel = control('label', {}, 'Pages to convert (blank = all): ');
