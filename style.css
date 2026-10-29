@@ -155,3 +155,12 @@
 .studio-reader-ruler{min-height:24px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;display:flex;align-items:center;justify-content:flex-end}
 .studio-reader-ruler:active{cursor:grabbing}
 .studio-reader-ruler:focus-visible{outline:3px solid #2e624f;outline-offset:2px}
+
+/* Compact side-by-side selectors in the Home Pattern widget. */
+.pattern-widget-selectors{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:end;margin:10px 0}
+.pattern-widget-selectors>div{min-width:0}
+.pattern-widget-selectors .field{width:100%;max-width:100%;min-width:0}
+.pattern-selector-header{display:flex;align-items:center;justify-content:space-between;gap:6px;min-height:34px}
+.pattern-selector-header .label{margin:0}
+.pattern-selector-header .button{white-space:nowrap;padding:6px 8px}
+@media(max-width:390px){.pattern-widget-selectors{gap:8px}.pattern-selector-header{flex-wrap:wrap}.pattern-selector-header .button{font-size:11px}}
