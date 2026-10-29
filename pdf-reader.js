@@ -1,0 +1,146 @@
+// Non-OCR original PDF reader; saved annotations use normalized page coordinates.
+const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs',WORKER='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const element=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e};
+export function normalizeReaderState(raw={}){
+ const x=raw&&typeof raw==='object'?raw:{};
+ return {page:Math.max(1,Math.floor(Number(x.page)||1)),zoom:clamp(Number(x.zoom)||1,.7,2.5),
+ rotation:([0,90,180,270].includes(Number(x.rotation))?Number(x.rotation):0),mode:x.mode==='highlight'?'highlight':'ruler',
+ ruler:x.ruler&&typeof x.ruler==='object'?structuredClone(x.ruler):{},marks:x.marks&&typeof x.marks==='object'?structuredClone(x.marks):{}};
+}
+export function insertMark(state,page,rect){
+ const x=clamp(rect.x,0,1),y=clamp(rect.y,0,1),w=clamp(rect.w,0,1-x),h=clamp(rect.h,0,1-y);
+ if(w<.008||h<.008)return false;
+ (state.marks[String(page)]??=[]).push({x,y,w,h});return true;
+}
+export async function openPdfReader({url,reading,onChange,onClose,onCounter}){
+ const state=normalizeReaderState(reading);
+ let pdf=null,api=null,closed=false,serial=0,rendering=false;
+ const outer=element('div','studio-reader-backdrop');
+ const dialog=element('section','studio-reader');
+ dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-label','PDF pattern reader');
+ const top=element('div','studio-reader-top');
+ const close=element('button','button secondary small','Close');close.type='button';
+ top.append(element('strong','', 'Original Pattern Reader'),close);
+ const status=element('p','studio-reader-status','Loading original PDF…');status.setAttribute('role','status');
+ const toolbar=element('div','studio-reader-toolbar');
+ const prev=element('button','button secondary small','Previous page'),label=element('span','','Page —'),next=element('button','button secondary small','Next page');
+ const zoomOut=element('button','button secondary small','Zoom −'),zoomStatus=element('span','','100%'),zoomIn=element('button','button secondary small','Zoom +'),rotate=element('button','button secondary small','Rotate');
+ toolbar.append(prev,label,next,zoomOut,zoomStatus,zoomIn,rotate);
+ const tools=element('div','studio-reader-toolbar');
+ const ruler=element('button','button secondary small','Ruler'),highlight=element('button','button secondary small','Highlight'),undo=element('button','button secondary small','Undo highlight');
+ tools.append(ruler,highlight,undo);
+ const area=element('div','studio-reader-workspace');
+ const viewport=element('div','studio-reader-scroll'),sheet=element('div','studio-reader-sheet'),overlay=element('div','studio-reader-overlay');
+ viewport.append(sheet);area.append(viewport);
+ const aside=element('aside','studio-reader-side');
+ const section=element('p','muted',''),counter=element('strong','studio-reader-counter-value','0'),countDescription=element('p','muted','');
+ const down=element('button','round','−'),up=element('button','round plus','+'),counterControls=element('div','studio-reader-count-controls');
+ counterControls.append(down,counter,up);
+ aside.append(element('strong','','Row Counter'),section,counterControls,countDescription,
+ element('p','muted','Reading position and highlights save automatically with this project on this device. Cross-device restore requires backup and sync.'));
+ area.append(aside);
+ const fallback=element('div','studio-reader-fallback');
+ fallback.hidden=true;
+ const fallbackPick=element('input','field');fallbackPick.type='file';fallbackPick.accept='.pdf,application/pdf';
+ fallback.append(element('p','','Dropbox could not open the PDF. Select the same PDF from Files instead.'),fallbackPick);
+ dialog.append(top,status,toolbar,tools,area,fallback);outer.append(dialog);document.body.append(outer);
+ const save=()=>onChange(structuredClone(state));
+ const countRefresh=()=>{
+   const c=onCounter.get();section.textContent=c.section||'';counter.textContent=String(c.count||0);
+   countDescription.textContent=c.rows?'of '+c.rows+' rows':'No active section';
+   down.disabled=up.disabled=!c.rows;
+ };
+ down.onclick=()=>{onCounter.change(-1);countRefresh()};
+ up.onclick=()=>{onCounter.change(1);countRefresh()};
+ const draw=()=>{
+   overlay.replaceChildren();
+   const key=String(state.page);
+   for(const mark of state.marks[key]||[]){
+     const rect=element('div','studio-reader-mark');
+     Object.assign(rect.style,{left:mark.x*100+'%',top:mark.y*100+'%',width:mark.w*100+'%',height:mark.h*100+'%'});
+     overlay.append(rect);
+   }
+   const line=element('div','studio-reader-ruler','Reading ruler');
+   line.style.top=clamp(Number(state.ruler[key]??.32),0,1)*100+'%';overlay.append(line);
+   undo.disabled=!(state.marks[key]?.length);
+   ruler.setAttribute('aria-pressed',String(state.mode==='ruler'));
+   highlight.setAttribute('aria-pressed',String(state.mode==='highlight'));
+ };
+ const closeReader=()=>{
+   if(closed)return;closed=true;serial++;outer.remove();onClose?.();
+   if(pdf)pdf.destroy().catch(()=>{});
+ };
+ close.onclick=closeReader;
+ outer.onclick=e=>{if(e.target===outer)closeReader()};
+ const paint=async()=>{
+   if(!pdf||closed)return;
+   const token=++serial;rendering=true;status.textContent='Rendering page '+state.page+'…';
+   try{
+     const page=await pdf.getPage(state.page);
+     const base=page.getViewport({scale:1,rotation:(page.rotate+state.rotation)%360});
+     const scale=Math.min(2,1800/Math.max(base.width,base.height))*state.zoom;
+     const view=page.getViewport({scale,rotation:(page.rotate+state.rotation)%360});
+     const canvas=element('canvas','studio-reader-canvas');
+     canvas.width=Math.round(view.width);canvas.height=Math.round(view.height);
+     await page.render({canvasContext:canvas.getContext('2d'),viewport:view}).promise;
+     if(closed||token!==serial)return;
+     sheet.replaceChildren(canvas,overlay);
+     sheet.style.width=canvas.width+'px';sheet.style.height=canvas.height+'px';
+     label.textContent='Page '+state.page+' of '+pdf.numPages;
+     zoomStatus.textContent=Math.round(state.zoom*100)+'%';
+     prev.disabled=state.page===1;next.disabled=state.page===pdf.numPages;
+     draw();status.textContent='Ready. Move the ruler or drag over text to highlight.';
+   }catch(e){if(!closed&&token===serial)status.textContent='Could not render page: '+e.message}
+   finally{if(token===serial)rendering=false}
+ };
+ const navigate=n=>{if(!pdf)return;const p=clamp(n,1,pdf.numPages);if(p!==state.page){state.page=p;save();paint()}};
+ prev.onclick=()=>navigate(state.page-1);next.onclick=()=>navigate(state.page+1);
+ zoomOut.onclick=()=>{state.zoom=clamp(Math.round((state.zoom-.2)*10)/10,.7,2.5);save();paint()};
+ zoomIn.onclick=()=>{state.zoom=clamp(Math.round((state.zoom+.2)*10)/10,.7,2.5);save();paint()};
+ rotate.onclick=()=>{state.rotation=(state.rotation+90)%360;save();paint()};
+ ruler.onclick=()=>{state.mode='ruler';save();draw()};
+ highlight.onclick=()=>{state.mode='highlight';save();draw()};
+ undo.onclick=()=>{state.marks[String(state.page)]?.pop();save();draw()};
+ let pointer=null;
+ const locate=e=>{const rect=overlay.getBoundingClientRect();return {x:clamp((e.clientX-rect.left)/rect.width,0,1),y:clamp((e.clientY-rect.top)/rect.height,0,1)}};
+ overlay.onpointerdown=e=>{
+   if(rendering||!pdf)return;
+   e.preventDefault();overlay.setPointerCapture(e.pointerId);
+   const at=locate(e);pointer={id:e.pointerId,begin:at,end:at};
+   if(state.mode==='ruler'){state.ruler[String(state.page)]=at.y;draw()}
+ };
+ overlay.onpointermove=e=>{if(!pointer||pointer.id!==e.pointerId)return;pointer.end=locate(e);if(state.mode==='ruler'){state.ruler[String(state.page)]=pointer.end.y;draw()}};
+ overlay.onpointerup=e=>{
+   if(!pointer||pointer.id!==e.pointerId)return;
+   const a=pointer.begin,b=locate(e);pointer=null;
+   if(state.mode==='ruler')state.ruler[String(state.page)]=b.y;
+   else insertMark(state,state.page,{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)});
+   save();draw();
+ };
+ overlay.onpointercancel=()=>{pointer=null;draw()};
+ const load=async bytes=>{
+   if(!api){api=await import(PDFJS);api.GlobalWorkerOptions.workerSrc=WORKER}
+   if(pdf)await pdf.destroy();
+   pdf=await api.getDocument({data:new Uint8Array(bytes).slice()}).promise;
+   state.page=clamp(state.page,1,pdf.numPages);
+   fallback.hidden=true;area.hidden=false;toolbar.hidden=false;tools.hidden=false;
+   await paint();
+ };
+ fallbackPick.onchange=async()=>{
+   const file=fallbackPick.files?.[0];if(!file)return;
+   try{status.textContent='Opening PDF from Files…';await load(await file.arrayBuffer())}
+   catch(e){status.textContent='Could not open selected PDF: '+e.message}
+ };
+ countRefresh();
+ try{
+   if(!url)throw Error('No saved Dropbox PDF link.');
+   const db=typeof StudioDropbox!=='undefined'?StudioDropbox:globalThis.StudioDropbox;
+   if(!db?.connected())throw Error('Dropbox is not connected on this device.');
+   await load(await db.downloadSharedLink(url));
+ }catch(e){
+   status.textContent='Cannot open from Dropbox: '+e.message;
+   fallback.hidden=false;area.hidden=true;toolbar.hidden=true;tools.hidden=true;
+ }
+ return {close:closeReader};
+}
