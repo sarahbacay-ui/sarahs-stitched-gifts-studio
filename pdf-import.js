@@ -1,249 +1,364 @@
-// Browser-only PDF text extraction. Original PDFs are not uploaded or saved.
-const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs';
-const WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
-const TESSERACT = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
+// Guided, browser-local PDF import. The source PDF is never modified.
+const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs';
+const PDF_WORKER='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
+const TESSERACT='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
 
-function reconstruct(items, width, columns) {
-  const result = Array.from({ length: columns }, () => []);
-  const lanes = Array.from({ length: columns }, () => []);
-  for (const item of items) {
-    if (!item.str || !item.str.trim()) continue;
-    const x = Number(item.transform?.[4] || 0);
-    const y = Number(item.transform?.[5] || 0);
-    // Assign using the text start position. This is an estimate, not guaranteed PDF reading order.
-    const lane = Math.min(columns - 1, Math.max(0, Math.floor(x / (width / columns))));
-    lanes[lane].push({ text: item.str, x, y, w: Number(item.width) || 0 });
-  }
-  for (let c = 0; c < columns; c++) {
-    const rows = [];
-    for (const part of lanes[c].sort((a,b) => b.y - a.y || a.x - b.x)) {
-      let row = rows.find(r => Math.abs(r.y - part.y) < 3.5);
-      if (!row) { row = { y: part.y, parts: [] }; rows.push(row); }
-      row.parts.push(part);
-    }
-    rows.sort((a,b) => b.y - a.y);
-    result[c] = rows.map(r => {
-      const parts = r.parts.sort((a,b) => a.x - b.x);
-      let line = '', right = -1;
-      for (const p of parts) {
-        if (line && p.x > right + 1.5 && !/\s$/.test(line)) line += ' ';
-        line += p.text;
-        right = Math.max(right, p.x + p.w);
-      }
-      return line.trim();
-    }).filter(Boolean);
-  }
-  return result;
+function node(tag, props={}, text) {
+  const el=document.createElement(tag);
+  Object.assign(el,props);
+  if(text!==undefined)el.textContent=text;
+  return el;
 }
-
-// Page numbers are 1-based PDF file pages, not page labels printed within the pattern.
-function selectedPages(input, total) {
-  const text = input.trim();
-  if (!text) return Array.from({length:total}, (_,i)=>i+1);
-  const selected = new Set();
-  for (const token of text.split(',')) {
-    const part = token.trim();
-    const match = /^(\d+)(?:\s*-\s*(\d+))?$/.exec(part);
-    if (!match) throw new Error('Use page numbers such as 6-8 or 2, 5, 7-9.');
-    const start = Number(match[1]), end = match[2] ? Number(match[2]) : start;
-    if (start<1 || end<start || end>total) throw new Error('Page selection must be between 1 and '+total+'.');
-    for (let n=start;n<=end;n++) selected.add(n);
+function pagesFromRange(raw,total) {
+  if(!raw.trim())return Array.from({length:total},(_,i)=>i+1);
+  const result=new Set();
+  for(const part of raw.split(',')) {
+    const m=/^(\d+)(?:\s*-\s*(\d+))?$/.exec(part.trim());
+    if(!m)throw Error('Use page numbers such as 6-8 or 2, 5, 7-9.');
+    const start=Number(m[1]),end=Number(m[2]||m[1]);
+    if(start<1||end<start||end>total)throw Error('Pages must be between 1 and '+total+'.');
+    for(let i=start;i<=end;i++)result.add(i);
   }
-  return [...selected].sort((a,b)=>a-b);
+  return [...result].sort((a,b)=>a-b);
 }
-
-function control(tag, props, label) {
-  const node = document.createElement(tag);
-  Object.assign(node, props || {});
-  if (label != null) node.textContent = label;
-  return node;
+const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+function boundaries(settings) {
+  const b=[settings.crop.x,...settings.splits,settings.crop.x+settings.crop.w];
+  return b.sort((a,c)=>a-c);
+}
+function regions(settings) {
+  const x=boundaries(settings);
+  return x.slice(0,-1).map((left,i)=>({
+    x:left,y:settings.crop.y,w:x[i+1]-left,h:settings.crop.h
+  }));
+}
+function cropCanvas(source,rect) {
+  const x=clamp(Math.round(rect.x*source.width),0,source.width-1);
+  const y=clamp(Math.round(rect.y*source.height),0,source.height-1);
+  const w=clamp(Math.round(rect.w*source.width),1,source.width-x);
+  const h=clamp(Math.round(rect.h*source.height),1,source.height-y);
+  const dst=document.createElement('canvas');
+  dst.width=w;dst.height=h;
+  dst.getContext('2d').drawImage(source,x,y,w,h,0,0,w,h);
+  return dst;
+}
+function setColumns(settings,n) {
+  settings.count=n;
+  settings.splits=Array.from({length:n-1},(_,i)=>settings.crop.x+(i+1)*settings.crop.w/n);
+}
+function updateCrop(settings,crop) {
+  settings.crop=crop;
+  setColumns(settings,settings.count);
+}
+function orderedText(pages) {
+  return pages.flatMap(page=>page.flatMap(lines=>lines.length?[...lines,'']:[])).join('\n').trim();
 }
 
 export async function openPdfImporter(onSave, options={}) {
-  const overlay = control('div', { className: 'pdf-import-overlay' });
-  const panel = control('section', { className: 'pdf-import-panel' });
-  panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-modal', 'true');
-  panel.setAttribute('aria-label', 'Import pattern instructions from PDF');
-  const heading = control('h2', {}, 'Import instructions from PDF');
-  const intro = control('p', { className: 'help' },
-    'Choose a PDF from Files or Dropbox on your device. Text is extracted on this device. The original PDF remains in Dropbox. Review and correct the instructions before saving.');
-  const savedLink=options.dropboxUrl||'';
-  const savedBox=control('div', {className:'pdf-import-saved-link'});
-  const savedDescription=control('p', {className:'help'}, savedLink?'Original PDF link already saved in this project. No need to paste it again.':'No Dropbox PDF is linked to this project yet.');
-  const useSaved=control('button', {type:'button',className:'button secondary small',disabled:!savedLink},'Import from saved Dropbox PDF');
-  savedBox.append(savedDescription);
-  if(savedLink)savedBox.append(useSaved);
-  const picker = control('input', { type: 'file', accept: 'application/pdf,.pdf', className: 'field' });
-  picker.setAttribute('aria-label', 'Choose PDF file');
-  const importOptions = control('div', { className: 'pdf-import-options' });
-  const label = control('label', {}, 'Printed columns per page: ');
-  const columns = control('select', { className: 'field' });
-  for (let n=1; n<=4; n++) columns.append(control('option', { value: String(n) }, String(n)));
-  label.append(columns);
-  importOptions.append(label);
-  const pageLabel = control('label', {}, 'Pages to convert (blank = all): ');
-  const pageRange = control('input', { type:'text', className:'field', placeholder:'e.g. 6-8 or 2, 5, 7-9' });
-  pageRange.setAttribute('aria-label','PDF file page numbers to convert');
-  pageLabel.append(pageRange);
-  importOptions.append(pageLabel);
-  const forceLabel = control('label', { className: 'pdf-ocr-choice' });
-  const forceOCR = control('input', { type: 'checkbox' });
-  forceLabel.append(forceOCR, document.createTextNode(' Use OCR even if selectable text exists'));
-  importOptions.append(forceLabel);
-  const status = control('p', { className: 'pdf-import-status', role: 'status', ariaLive:'polite', ariaAtomic:'true' }, 'Ready. Enter the pages to convert, then tap Import from saved Dropbox PDF.');
-  const progress = control('progress', { className:'pdf-import-progress', max:100, value:0 });
-  progress.hidden=true;
-  const setProgress=(message,percent=null)=>{
+  const backdrop=node('div',{className:'pdf-import-overlay'});
+  const panel=node('section',{className:'pdf-import-panel'});
+  panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');
+  panel.setAttribute('aria-label','Guided PDF pattern importer');
+  const heading=node('h2',{},'Import knitting instructions');
+  const description=node('p',{className:'help'},'Prepare each PDF page, then convert and review the instructions before saving a new working pattern. Your original PDF is unchanged.');
+  const status=node('p',{className:'pdf-import-status',role:'status'},'Choose the PDF source.');
+  status.setAttribute('aria-live','polite');
+  const progress=node('progress',{className:'pdf-import-progress',max:100,value:0});progress.hidden=true;
+  const sourceArea=node('section',{className:'pdf-import-stage'});
+  const settingsArea=node('section',{className:'pdf-import-stage'});settingsArea.hidden=true;
+  const reviewArea=node('section',{className:'pdf-import-stage'});reviewArea.hidden=true;
+  const buttons=node('div',{className:'row pdf-import-actions'});
+  const closeButton=node('button',{type:'button',className:'button secondary'},'Cancel');
+  const saveButton=node('button',{type:'button',className:'button',disabled:true},'Save working pattern');
+  buttons.append(closeButton,saveButton);
+  panel.append(heading,description,status,progress,sourceArea,settingsArea,reviewArea,buttons);
+  backdrop.append(panel);document.body.append(backdrop);
+
+  const savedUrl=options.dropboxUrl||'';
+  const fromDropbox=node('button',{type:'button',className:'button secondary',disabled:!savedUrl},'Import from saved Dropbox PDF');
+  const picker=node('input',{type:'file',accept:'.pdf,application/pdf',className:'field'});
+  const range=node('input',{type:'text',className:'field',placeholder:'e.g. 6-8'});
+  range.setAttribute('aria-label','PDF page numbers');
+  const prepare=node('button',{type:'button',className:'button',disabled:true},'Preview selected pages');
+  sourceArea.append(
+    node('h3',{},'1. Choose PDF and pages'),
+    node('p',{className:'help'},savedUrl?'Your saved Dropbox PDF link is ready.':'No Dropbox PDF linked; select a file from Files.'),
+    fromDropbox,
+    node('p',{className:'help'},'Or choose a PDF from Files:'),
+    picker,
+    node('label',{},'Pages to import (blank = all)'),
+    range,prepare
+  );
+  const cards=node('div',{className:'pdf-page-cards'});
+  const convert=node('button',{type:'button',className:'button'},'Convert selected reading areas');
+  const reset=node('button',{type:'button',className:'button secondary'},'Change page selection');
+  const prepButtons=node('div',{className:'row pdf-import-actions'});prepButtons.append(reset,convert);
+  settingsArea.append(node('h3',{},'2. Prepare each page'),
+    node('p',{className:'help'},'Rotate the page until text is upright. Choose 1–4 columns for each page. Drag a rectangle over the instructions to exclude unwanted text, or adjust its edges with the controls. Adjust the green column dividers when needed. Reading order is top-to-bottom in each column, then left-to-right, page by page.'),
+    cards,prepButtons);
+  const reviewed=node('textarea',{className:'field pdf-import-review',rows:18});
+  reviewed.setAttribute('aria-label','Review extracted knitting instructions');
+  const redo=node('button',{type:'button',className:'button secondary'},'Back to page preparation');
+  reviewArea.append(node('h3',{},'3. Review and save'),
+    node('p',{className:'help'},'Compare the converted text with the page previews. Correct missing stitches, row order, OCR errors, or extra text before saving.'),
+    reviewed,redo);
+
+  let busy=false,closed=false,sourceBytes=null,sourceName='Imported PDF';
+  let pdf=null,pdfjs=null,ocr=null,settings=[],converted=false;
+  const update=(message,value=null)=>{
     status.textContent=message;
-    if(percent==null){progress.hidden=true;progress.removeAttribute('value');}
-    else {progress.hidden=false;progress.value=Math.max(0,Math.min(100,percent));}
+    progress.hidden=value===null;
+    if(value!==null)progress.value=clamp(value,0,100);
   };
-  const preview = control('div', { className: 'pdf-import-preview' });
-  const actions = control('div', { className: 'row pdf-import-actions' });
-  const cancel = control('button', { type: 'button', className: 'button secondary' }, 'Cancel');
-  const save = control('button', { type: 'button', className: 'button', disabled: true }, 'Save working pattern');
-  actions.append(cancel, save);
-  panel.append(heading, intro, importOptions, savedBox, status, progress, control('p',{className:'help'},'Or select the PDF from Files if Dropbox does not allow direct access:'), picker, preview, actions);
-  overlay.append(panel);
-  document.body.append(overlay);
-  const close = () => { if (loading) return; overlay.remove(); if (worker) { const activeWorker = worker; worker = null; activeWorker.terminate().catch(()=>{}); } };
-  cancel.onclick = close;
-  let latest = [], loading = false, fetching=false, worker = null, sourceBytes = null, sourceName = '';
-  const setBusy=(busy)=>{
-    fetching=busy;
-    useSaved.disabled=busy||!savedLink;
-    useSaved.textContent=busy?'Importing from Dropbox…':'Import from saved Dropbox PDF';
-    picker.disabled=busy;
+  const setBusy=value=>{
+    busy=value;
+    fromDropbox.disabled=value||!savedUrl;
+    picker.disabled=value;
+    prepare.disabled=value||!sourceBytes;
+    convert.disabled=value;
+    reset.disabled=value;
+    redo.disabled=value;
+    saveButton.disabled=value||!converted||!reviewed.value.trim();
+    closeButton.disabled=value;
   };
-  // Combine each page's columns before moving to the next page.
-  const orderedLines = pages => pages.flatMap(page => page.flatMap(lines => lines.length ? [...lines, ''] : []));
-  const display = (pages, count, ocrCount) => {
-    const lines = orderedLines(pages);
-    latest = [lines];
-    preview.replaceChildren();
-    const section = control('label', {className:'pdf-preview-column'});
-    section.append(control('strong', {}, 'Instructions in reading order: page by page, left column to right column'));
-    const area = control('textarea', {className:'field', rows:12, value:lines.join('\n').trim()});
-    area.setAttribute('aria-label','Extracted instructions in reading order');
-    section.append(area);
-    preview.append(section);
-    save.disabled = !lines.some(x=>x.trim());
-    setProgress('Complete: processed '+count+' selected page(s), OCR used on '+ocrCount+'. Instructions are ordered left to right by column on each page, then the next page. Review stitch counts and row order before saving.',100);
+  const destroyPdf=async()=>{
+    if(pdf){const previous=pdf;pdf=null;await previous.destroy();}
   };
-  const getWorker = async () => {
-    if (!worker) {
-      setProgress('Loading free OCR for scanned pages. The first download may take a moment...');
-      const ocrModule = await import(TESSERACT);
-      // The CDN's ESM bundle exposes the worker factory through its default export
-      // in some builds, instead of as a named export.
-      const createWorker = ocrModule.createWorker || ocrModule.default?.createWorker;
-      if (typeof createWorker !== 'function') {
-        throw new Error('OCR library loaded but does not expose createWorker. Please report this error.');
-      }
-      worker = await createWorker('eng');
+  const close=()=>{
+    if(busy||closed)return;
+    closed=true;backdrop.remove();
+    if(ocr){const previous=ocr;ocr=null;previous.terminate().catch(()=>{});}
+    destroyPdf().catch(()=>{});
+  };
+  closeButton.onclick=close;
+  backdrop.addEventListener('click',e=>{if(e.target===backdrop)close();});
+  const loadSource=async(bytes,name)=>{
+    await destroyPdf();
+    sourceBytes=new Uint8Array(bytes);
+    sourceName=name;
+    settings=[];converted=false;reviewed.value='';
+    cards.replaceChildren();settingsArea.hidden=true;reviewArea.hidden=true;sourceArea.hidden=false;
+    prepare.disabled=false;
+    update('PDF loaded. Enter the page range, then preview the selected pages.');
+  };
+  picker.onchange=async()=>{
+    const file=picker.files?.[0];if(!file)return;
+    if(!file.name.toLowerCase().endsWith('.pdf')&&file.type!=='application/pdf'){update('Please select a PDF.');return;}
+    try{setBusy(true);await loadSource(await file.arrayBuffer(),file.name);}
+    catch(err){update('Could not open file: '+err.message);}
+    finally{setBusy(false);}
+  };
+  fromDropbox.onclick=async()=>{
+    if(busy)return;
+    try{
+      setBusy(true);update('Downloading the original PDF from Dropbox…',0);
+      if(!globalThis.StudioDropbox?.connected())throw Error('Dropbox is not connected in this browser.');
+      const bytes=await globalThis.StudioDropbox.downloadSharedLink(savedUrl);
+      await loadSource(bytes,'Dropbox PDF');
+    }catch(err){update('Dropbox download failed: '+err.message+'. You can select the same PDF from Files.');}
+    finally{setBusy(false);}
+  };
+  const getPdf=async()=>{
+    if(!pdfjs){
+      pdfjs=await import(PDFJS);
+      pdfjs.GlobalWorkerOptions.workerSrc=PDF_WORKER;
     }
-    return worker;
+    if(!pdf)pdf=await pdfjs.getDocument({data:sourceBytes.slice()}).promise;
+    return pdf;
   };
-  const recognizePage = async (page, n, pageNo) => {
-    const viewportBase = page.getViewport({scale:1});
-    // Keep the longest raster dimension under 2400 pixels for mobile memory.
-    const scale = Math.min(2.5, 2400 / Math.max(viewportBase.width, viewportBase.height));
-    const viewport = page.getViewport({scale});
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(viewport.width);
-    canvas.height = Math.round(viewport.height);
-    const ctx = canvas.getContext('2d', {willReadFrequently:true});
-    if (!ctx) throw new Error('Could not create an image for OCR.');
-    const render = page.render({canvasContext:ctx, viewport});
-    await render.promise;
-    const engine = await getWorker();
-    const extracted = [];
-    try {
-      for(let col=0;col<n;col++) {
-        setProgress('Reading scanned page '+pageNo+', column '+(col+1)+' of '+n+'…');
-        const start = Math.floor(col*canvas.width/n);
-        const end = Math.floor((col+1)*canvas.width/n);
-        const slice = document.createElement('canvas');
-        slice.width = end-start;
-        slice.height = canvas.height;
-        slice.getContext('2d').drawImage(canvas, start,0,slice.width,slice.height,0,0,slice.width,slice.height);
-        const response = await engine.recognize(slice);
-        extracted.push(response.data.text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean));
-        slice.width = 0; slice.height = 0;
+  const renderPreview=async(setting)=>{
+    const target=setting.canvas;
+    const page=await pdf.getPage(setting.number);
+    const viewport0=page.getViewport({scale:1,rotation:(page.rotate+setting.rotation)%360});
+    const scale=Math.min(1.35,820/Math.max(viewport0.width,viewport0.height));
+    const viewport=page.getViewport({scale,rotation:(page.rotate+setting.rotation)%360});
+    target.width=Math.max(1,Math.round(viewport.width));
+    target.height=Math.max(1,Math.round(viewport.height));
+    await page.render({canvasContext:target.getContext('2d'),viewport}).promise;
+    page.cleanup();
+  };
+  const refreshOverlay=setting=>{
+    const crop=setting.crop,overlay=setting.selection;
+    overlay.style.left=(crop.x*100)+'%';overlay.style.top=(crop.y*100)+'%';
+    overlay.style.width=(crop.w*100)+'%';overlay.style.height=(crop.h*100)+'%';
+    overlay.replaceChildren();
+    for(const x of setting.splits){
+      const line=node('div',{className:'pdf-split-line'});
+      line.style.left=((x-crop.x)/crop.w*100)+'%';
+      overlay.append(line);
+    }
+    setting.sliders.forEach((slider,i)=>{
+      slider.min=String(Math.round((crop.x+0.05)*100));
+      slider.max=String(Math.round((crop.x+crop.w-0.05)*100));
+      slider.value=String(Math.round(setting.splits[i]*100));
+    });
+  };
+  const makePageCard=async setting=>{
+    const card=node('section',{className:'pdf-page-card'});
+    const title=node('h4',{},'PDF page '+setting.number);
+    const rotateLeft=node('button',{type:'button',className:'button secondary small'},'Rotate left');
+    const rotateRight=node('button',{type:'button',className:'button secondary small'},'Rotate right');
+    const row=node('div',{className:'row pdf-page-controls'});
+    const colLabel=node('label',{},'Columns: ');
+    const select=node('select',{className:'field'});
+    for(let i=1;i<=4;i++)select.append(node('option',{value:String(i)},String(i)));
+    select.value=String(setting.count);colLabel.append(select);
+    const controls=node('div',{className:'row pdf-page-controls'});
+    controls.append(rotateLeft,rotateRight,colLabel);
+    const canvas=node('canvas',{className:'pdf-page-canvas'});setting.canvas=canvas;
+    const wrapper=node('div',{className:'pdf-page-canvas-wrap'});
+    const selection=node('div',{className:'pdf-crop-selection'});setting.selection=selection;
+    const surface=node('div',{className:'pdf-crop-draw-surface'});
+    wrapper.append(canvas,selection,surface);
+    const cropForm=node('div',{className:'pdf-crop-fields'});
+    const edges=[['Left','x'],['Top','y'],['Right','right'],['Bottom','bottom']];
+    const cropFields={};
+    for(const [label,key] of edges){
+      const controlLabel=node('label',{},label+' %');
+      const field=node('input',{type:'number',className:'field',min:0,max:100,step:1});
+      cropFields[key]=field;controlLabel.append(field);cropForm.append(controlLabel);
+    }
+    const syncCropFields=()=>{
+      const c=setting.crop;
+      cropFields.x.value=Math.round(c.x*100);
+      cropFields.y.value=Math.round(c.y*100);
+      cropFields.right.value=Math.round((c.x+c.w)*100);
+      cropFields.bottom.value=Math.round((c.y+c.h)*100);
+    };
+    const applyCrop=()=>{
+      const left=clamp(Number(cropFields.x.value)/100,0,.95);
+      const top=clamp(Number(cropFields.y.value)/100,0,.95);
+      const right=clamp(Number(cropFields.right.value)/100,left+.05,1);
+      const bottom=clamp(Number(cropFields.bottom.value)/100,top+.05,1);
+      updateCrop(setting,{x:left,y:top,w:right-left,h:bottom-top});
+      syncCropFields();renderSplits();refreshOverlay(setting);
+    };
+    Object.values(cropFields).forEach(field=>field.onchange=applyCrop);
+    const splitControls=node('div',{className:'pdf-split-controls'});
+    setting.sliders=[];
+    const renderSplits=()=>{
+      splitControls.replaceChildren();setting.sliders=[];
+      for(let i=0;i<setting.count-1;i++){
+        const label=node('label',{},'Divider '+(i+1));
+        const slider=node('input',{type:'range',step:1,min:0,max:100});
+        slider.oninput=()=>{
+          const left=i===0?setting.crop.x:setting.splits[i-1]+.05;
+          const right=i===setting.splits.length-1?setting.crop.x+setting.crop.w:setting.splits[i+1]-.05;
+          setting.splits[i]=clamp(Number(slider.value)/100,left,right);
+          refreshOverlay(setting);
+        };
+        label.append(slider);splitControls.append(label);setting.sliders.push(slider);
       }
-      return extracted;
-    } finally {
-      canvas.width = 0; canvas.height = 0;
+      refreshOverlay(setting);
+    };
+    select.onchange=()=>{setColumns(setting,Number(select.value));renderSplits();};
+    const rotate=async degrees=>{
+      if(busy)return;
+      try{
+        setBusy(true);
+        setting.rotation=(setting.rotation+degrees+360)%360;
+        updateCrop(setting,{x:0,y:0,w:1,h:1});
+        await renderPreview(setting);syncCropFields();renderSplits();
+        update('PDF page '+setting.number+' rotated. Adjust its reading area, if needed.');
+      }catch(err){update('Rotation preview failed: '+err.message);}
+      finally{setBusy(false);}
+    };
+    rotateLeft.onclick=()=>rotate(-90);rotateRight.onclick=()=>rotate(90);
+    let start=null;
+    surface.onpointerdown=e=>{
+      if(busy)return;
+      e.preventDefault();surface.setPointerCapture(e.pointerId);
+      const rect=surface.getBoundingClientRect();
+      start={x:clamp((e.clientX-rect.left)/rect.width,0,1),y:clamp((e.clientY-rect.top)/rect.height,0,1)};
+    };
+    surface.onpointerup=e=>{
+      if(!start)return;
+      const rect=surface.getBoundingClientRect(),ex=clamp((e.clientX-rect.left)/rect.width,0,1),ey=clamp((e.clientY-rect.top)/rect.height,0,1);
+      const x=Math.min(start.x,ex),y=Math.min(start.y,ey),w=Math.abs(ex-start.x),h=Math.abs(ey-start.y);start=null;
+      if(w<.03||h<.03)return;
+      updateCrop(setting,{x,y,w,h});syncCropFields();renderSplits();
+    };
+    surface.onpointercancel=()=>{start=null;};
+    const resetCrop=node('button',{type:'button',className:'button secondary small'},'Use full page');
+    resetCrop.onclick=()=>{updateCrop(setting,{x:0,y:0,w:1,h:1});syncCropFields();renderSplits();};
+    const note=node('p',{className:'help'},'Drag across the page image to select a reading area. Adjust edges or dividers for accuracy.');
+    card.append(title,controls,wrapper,note,cropForm,resetCrop,splitControls);
+    cards.append(card);await renderPreview(setting);syncCropFields();renderSplits();
+  };
+  prepare.onclick=async()=>{
+    if(busy||!sourceBytes)return;
+    try{
+      setBusy(true);update('Loading PDF page previews…',0);
+      await getPdf();
+      const numbers=pagesFromRange(range.value,pdf.numPages);
+      if(numbers.length>20)throw Error('For iPhone stability, please select up to 20 pages per import.');
+      cards.replaceChildren();settings=[];
+      for(let i=0;i<numbers.length;i++){
+        const setting={number:numbers[i],rotation:0,count:2,crop:{x:0,y:0,w:1,h:1},splits:[.5],sliders:[]};
+        settings.push(setting);
+        update('Preparing page '+setting.number+' ('+(i+1)+' of '+numbers.length+')…',Math.round(i/numbers.length*100));
+        await makePageCard(setting);
+      }
+      sourceArea.hidden=true;settingsArea.hidden=false;reviewArea.hidden=true;
+      update('Page previews ready. Rotate, select reading areas, and choose columns for each page.',100);
+    }catch(err){update('Could not prepare pages: '+err.message);settingsArea.hidden=true;}
+    finally{setBusy(false);}
+  };
+  reset.onclick=()=>{settingsArea.hidden=true;reviewArea.hidden=true;sourceArea.hidden=false;converted=false;saveButton.disabled=true;update('Choose pages and preview again.');};
+  const getOcr=async()=>{
+    if(!ocr){
+      update('Loading OCR for scanned knitting pages…');
+      const mod=await import(TESSERACT);
+      const createWorker=mod.createWorker||mod.default?.createWorker;
+      if(typeof createWorker!=='function')throw Error('The OCR library did not provide a worker.');
+      ocr=await createWorker('eng');
+    }
+    return ocr;
+  };
+  const ocrPage=async(setting,index)=>{
+    const page=await pdf.getPage(setting.number);
+    const v0=page.getViewport({scale:1,rotation:(page.rotate+setting.rotation)%360});
+    // Bound raster size on mobile. Crop and OCR one column at a time.
+    const scale=Math.min(2.5,2200/Math.max(v0.width,v0.height));
+    const viewport=page.getViewport({scale,rotation:(page.rotate+setting.rotation)%360});
+    const full=node('canvas');
+    full.width=Math.max(1,Math.round(viewport.width));full.height=Math.max(1,Math.round(viewport.height));
+    try{
+      await page.render({canvasContext:full.getContext('2d'),viewport}).promise;
+      const engine=await getOcr();
+      const result=[];
+      for(let i=0;i<setting.count;i++){
+        update('Reading page '+setting.number+', column '+(i+1)+' of '+setting.count+'…',Math.round(10+80*(index+(i+1)/setting.count)/settings.length));
+        const portion=cropCanvas(full,regions(setting)[i]);
+        try{
+          const response=await engine.recognize(portion);
+          result.push((response.data?.text||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean));
+        }finally{portion.width=0;portion.height=0;}
+      }
+      return result;
+    }finally{
+      page.cleanup();full.width=0;full.height=0;
     }
   };
-  const processPDF = async () => {
-    if (!sourceBytes || loading) return;
-    loading = true; save.disabled = true; preview.replaceChildren();
-    setProgress('Opening '+sourceName+'…',10);
-    let pdf = null;
-    try {
-      const pdfjs = await import(PDFJS);
-      pdfjs.GlobalWorkerOptions.workerSrc = WORKER;
-      pdf = await pdfjs.getDocument({data:sourceBytes.slice()}).promise;
-      const selection = selectedPages(pageRange.value,pdf.numPages);
-      const n = Number(columns.value), collected = [];
-      let scanned = 0;
-      for (const p of selection) {
-        setProgress('Processing selected page '+p+' ('+(selection.indexOf(p)+1)+' of '+selection.length+')…',15+Math.round(75*selection.indexOf(p)/selection.length));
-        const page = await pdf.getPage(p);
-        const content = await page.getTextContent();
-        const items = content.items.filter(x=>x.str && x.str.trim());
-        const needsOCR = forceOCR.checked || items.length < 6;
-        if (needsOCR) {
-          collected.push(await recognizePage(page,n,p));
-          scanned++;
-        } else {
-          const viewport = page.getViewport({scale:1});
-          collected.push(reconstruct(content.items,viewport.width,n));
-        }
-        page.cleanup();
-      }
-      display(collected,selection.length,scanned);
-    } catch (err) {
-      save.disabled = true;
-      preview.replaceChildren();
-      setProgress('Import failed while converting the PDF: '+(err?.message||String(err)));
-    } finally {
-      loading = false;
-      if (pdf) await pdf.destroy();
-    }
+  convert.onclick=async()=>{
+    if(busy||!pdf||!settings.length)return;
+    try{
+      setBusy(true);converted=false;reviewArea.hidden=true;
+      const result=[];
+      for(let i=0;i<settings.length;i++)result.push(await ocrPage(settings[i],i));
+      reviewed.value=orderedText(result);
+      converted=true;
+      settingsArea.hidden=false;reviewArea.hidden=false;
+      update('Conversion complete. Review the text carefully before saving.',100);
+      reviewArea.scrollIntoView({block:'start'});
+    }catch(err){update('Conversion failed: '+err.message+'. Your original PDF is unchanged.');}
+    finally{setBusy(false);}
   };
-  columns.onchange = processPDF;
-  pageRange.onchange = processPDF;
-  forceOCR.onchange = processPDF;
-  picker.onchange = async () => {
-    const file=picker.files?.[0];
-    if(!file)return;
-    if(!/\.pdf$/i.test(file.name)&&file.type!=='application/pdf'){setProgress('Select a PDF file.');return;}
-    sourceName=file.name;
-    sourceBytes=new Uint8Array(await file.arrayBuffer());
-    processPDF();
-  };
-  useSaved.onclick = async () => {
-    if(!savedLink || loading||fetching)return;
-    setBusy(true);
-    setProgress('Connecting to Dropbox and downloading your saved PDF…',0);
-    try {
-      if(!StudioDropbox.connected())throw Error('Dropbox is not connected in this browser session.');
-      sourceBytes=await StudioDropbox.downloadSharedLink(savedLink);
-      setProgress('PDF downloaded ('+Math.round(sourceBytes.byteLength/1024)+' KB). Starting extraction…',10);
-      sourceName=decodeURIComponent(new URL(savedLink).pathname.split('/').pop()||'Dropbox pattern.pdf');
-      if(!sourceName.toLowerCase().endsWith('.pdf'))sourceName='Dropbox pattern.pdf';
-      await processPDF();
-    } catch (err) {
-      setProgress('Dropbox import failed: '+(err?.message||String(err))+'. The original link is still saved. You can also select the PDF from Files below.');
-    } finally {setBusy(false);}
-  };
-  save.onclick = () => {
-    const text = [...preview.querySelectorAll('textarea')].map(x=>x.value.trim());
-    if (!text.some(Boolean)) return;
-    onSave({name: sourceName || 'Imported PDF', columns: text});
+  redo.onclick=()=>{reviewArea.hidden=true;converted=false;saveButton.disabled=true;settingsArea.scrollIntoView({block:'start'});update('Adjust page rotation, crop, or column dividers, then convert again.');};
+  reviewed.oninput=()=>{saveButton.disabled=busy||!converted||!reviewed.value.trim();};
+  saveButton.onclick=()=>{
+    if(busy||!converted||!reviewed.value.trim())return;
+    onSave({name:sourceName,columns:[reviewed.value.trim()]});
     close();
   };
   picker.focus();
