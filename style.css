@@ -164,3 +164,7 @@
 .pattern-selector-header .label{margin:0}
 .pattern-selector-header .button{white-space:nowrap;padding:6px 8px}
 @media(max-width:390px){.pattern-widget-selectors{gap:8px}.pattern-selector-header{flex-wrap:wrap}.pattern-selector-header .button{font-size:11px}}
+
+.studio-startup-message,.studio-startup-failure{margin:24px auto;padding:20px;max-width:640px;background:#fffdfa;color:#343b32;border:1px solid #d7d4c9;border-radius:10px;line-height:1.5}
+.studio-startup-failure h2{font:normal 24px Georgia,serif;margin:0 0 12px}
+.studio-startup-failure button{border:0;border-radius:8px;background:#8b9e83;color:white;padding:12px;font:inherit}
