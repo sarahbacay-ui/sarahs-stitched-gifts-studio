@@ -19,9 +19,9 @@
  if(!('serviceWorker' in navigator))return;
  var refreshing=false;
  navigator.serviceWorker.addEventListener('controllerchange',function(){
+  // Do not interrupt an active editing session. The next app launch loads the update.
   if(refreshing)return;
   refreshing=true;
-  location.reload();
  });
  function checkForUpdates(){
   navigator.serviceWorker.getRegistration('./').then(function(reg){
