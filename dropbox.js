@@ -18,7 +18,7 @@ const StudioDropbox=(()=>{
 
  // Public OAuth client identifier. Set once when the user provides their App Key.
  // It is safe to publish the App Key; never include the App Secret or OAuth tokens.
- const SHARED_APP_KEY='';
+ const SHARED_APP_KEY='phqesvo0v3jix2w';
  const configKey='studio-dropbox-public-key';
  const EXPECTED_REDIRECT='https://sarahbacay-ui.github.io/sarahs-stitched-gifts-studio/';
  const redirect=()=>EXPECTED_REDIRECT;
