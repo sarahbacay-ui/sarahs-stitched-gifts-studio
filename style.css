@@ -150,3 +150,8 @@
 .studio-reader-inline .studio-reader-toolbar button{font-size:12px;min-height:38px}
 .studio-reader-inline .studio-reader-status{line-height:1.45;overflow-wrap:anywhere}
 @media(max-width:650px){.studio-reader-inline .studio-reader{padding:8px}.studio-reader-inline .studio-reader-scroll{height:55dvh;max-height:520px}.studio-reader-inline .studio-reader-toolbar{gap:4px}}
+
+/* Keep the ruler easy to grasp on iPad, including in Pan / Scroll mode. */
+.studio-reader-ruler{min-height:24px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;display:flex;align-items:center;justify-content:flex-end}
+.studio-reader-ruler:active{cursor:grabbing}
+.studio-reader-ruler:focus-visible{outline:3px solid #2e624f;outline-offset:2px}
