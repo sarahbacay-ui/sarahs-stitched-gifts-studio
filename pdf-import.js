@@ -59,7 +59,7 @@ function control(tag, props, label) {
   return node;
 }
 
-export async function openPdfImporter(onSave) {
+export async function openPdfImporter(onSave, options={}) {
   const overlay = control('div', { className: 'pdf-import-overlay' });
   const panel = control('section', { className: 'pdf-import-panel' });
   panel.setAttribute('role', 'dialog');
@@ -68,6 +68,12 @@ export async function openPdfImporter(onSave) {
   const heading = control('h2', {}, 'Import instructions from PDF');
   const intro = control('p', { className: 'help' },
     'Choose a PDF from Files or Dropbox on your device. Text is extracted on this device. The original PDF remains in Dropbox. Review and correct the instructions before saving.');
+  const savedLink=options.dropboxUrl||'';
+  const savedBox=control('div', {className:'pdf-import-saved-link'});
+  const savedDescription=control('p', {className:'help'}, savedLink?'Original PDF link already saved in this project. No need to paste it again.':'No Dropbox PDF is linked to this project yet.');
+  const useSaved=control('button', {type:'button',className:'button secondary small',disabled:!savedLink},'Import from saved Dropbox PDF');
+  savedBox.append(savedDescription);
+  if(savedLink)savedBox.append(useSaved);
   const picker = control('input', { type: 'file', accept: 'application/pdf,.pdf', className: 'field' });
   picker.setAttribute('aria-label', 'Choose PDF file');
   const options = control('div', { className: 'pdf-import-options' });
@@ -91,12 +97,12 @@ export async function openPdfImporter(onSave) {
   const cancel = control('button', { type: 'button', className: 'button secondary' }, 'Cancel');
   const save = control('button', { type: 'button', className: 'button', disabled: true }, 'Save working pattern');
   actions.append(cancel, save);
-  panel.append(heading, intro, picker, options, status, preview, actions);
+  panel.append(heading, intro, savedBox, control('p',{className:'help'},'Or select the PDF from Files if Dropbox does not allow direct access:'), picker, options, status, preview, actions);
   overlay.append(panel);
   document.body.append(overlay);
   const close = () => { if (loading) return; overlay.remove(); if (worker) { const activeWorker = worker; worker = null; activeWorker.terminate().catch(()=>{}); } };
   cancel.onclick = close;
-  let latest = [], loading = false, worker = null;
+  let latest = [], loading = false, worker = null, sourceBytes = null, sourceName = '';
   const display = (pages, count, ocrCount) => {
     const n = Number(columns.value);
     latest = Array.from({length:n},()=>[]);
@@ -159,16 +165,14 @@ export async function openPdfImporter(onSave) {
     }
   };
   const processPDF = async () => {
-    const file = picker.files?.[0];
-    if (!file || loading) return;
+    if (!sourceBytes || loading) return;
     loading = true; save.disabled = true; preview.replaceChildren();
-    status.textContent = 'Opening '+file.name+'...';
+    status.textContent = 'Opening '+sourceName+'...';
     let pdf = null;
     try {
-      if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') throw new Error('Select a PDF file.');
       const pdfjs = await import(PDFJS);
       pdfjs.GlobalWorkerOptions.workerSrc = WORKER;
-      pdf = await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+      pdf = await pdfjs.getDocument({data:sourceBytes.slice()}).promise;
       const selection = selectedPages(pageRange.value,pdf.numPages);
       const n = Number(columns.value), collected = [];
       let scanned = 0;
@@ -200,11 +204,32 @@ export async function openPdfImporter(onSave) {
   columns.onchange = processPDF;
   pageRange.onchange = processPDF;
   forceOCR.onchange = processPDF;
-  picker.onchange = processPDF;
+  picker.onchange = async () => {
+    const file=picker.files?.[0];
+    if(!file)return;
+    if(!/\.pdf$/i.test(file.name)&&file.type!=='application/pdf'){status.textContent='Select a PDF file.';return;}
+    sourceName=file.name;
+    sourceBytes=new Uint8Array(await file.arrayBuffer());
+    processPDF();
+  };
+  useSaved.onclick = async () => {
+    if(!savedLink || loading)return;
+    useSaved.disabled=true;
+    status.textContent='Opening the PDF from the saved Dropbox link...';
+    try {
+      if(!StudioDropbox.connected())throw Error('Dropbox is not connected in this browser session.');
+      sourceBytes=await StudioDropbox.downloadSharedLink(savedLink);
+      sourceName=decodeURIComponent(new URL(savedLink).pathname.split('/').pop()||'Dropbox pattern.pdf');
+      if(!sourceName.toLowerCase().endsWith('.pdf'))sourceName='Dropbox pattern.pdf';
+      await processPDF();
+    } catch (err) {
+      status.textContent='Could not read the saved link directly: '+(err?.message||String(err))+'. You can select the same PDF from Files below, without re-entering its Dropbox link.';
+    } finally {useSaved.disabled=false;}
+  };
   save.onclick = () => {
     const text = [...preview.querySelectorAll('textarea')].map(x=>x.value.trim());
     if (!text.some(Boolean)) return;
-    onSave({name: picker.files?.[0]?.name || 'Imported PDF', columns: text});
+    onSave({name: sourceName || 'Imported PDF', columns: text});
     close();
   };
   picker.focus();
