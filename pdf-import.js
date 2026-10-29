@@ -217,8 +217,8 @@ export async function openPdfImporter(onSave, options={}) {
     useSaved.disabled=true;
     status.textContent='Opening the PDF from the saved Dropbox link...';
     try {
-      if(!globalThis.StudioDropbox?.connected())throw Error('Dropbox is not connected in this browser session.');
-      sourceBytes=await globalThis.StudioDropbox.downloadSharedLink(savedLink);
+      if(!StudioDropbox.connected())throw Error('Dropbox is not connected in this browser session.');
+      sourceBytes=await StudioDropbox.downloadSharedLink(savedLink);
       sourceName=decodeURIComponent(new URL(savedLink).pathname.split('/').pop()||'Dropbox pattern.pdf');
       if(!sourceName.toLowerCase().endsWith('.pdf'))sourceName='Dropbox pattern.pdf';
       await processPDF();
