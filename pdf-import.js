@@ -152,8 +152,9 @@ export async function openPdfImporter(onSave, options={}) {
     if(busy)return;
     try{
       setBusy(true);update('Downloading the original PDF from Dropbox…',0);
-      if(!globalThis.StudioDropbox?.connected())throw Error('Dropbox is not connected in this browser.');
-      const bytes=await globalThis.StudioDropbox.downloadSharedLink(savedUrl);
+      const dropbox=typeof StudioDropbox!=='undefined'?StudioDropbox:globalThis.StudioDropbox;
+      if(!dropbox?.connected())throw Error('Dropbox is not connected in this browser.');
+      const bytes=await dropbox.downloadSharedLink(savedUrl);
       await loadSource(bytes,'Dropbox PDF');
     }catch(err){update('Dropbox download failed: '+err.message+'. You can select the same PDF from Files.');}
     finally{setBusy(false);}
