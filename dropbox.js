@@ -16,15 +16,18 @@ const StudioDropbox=(()=>{
  };
  async function testConnection(){if(!connected())throw Error('Connect Dropbox first');try{await call(API+'/files/list_folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:'',limit:1})});setStatus('verified');return true}catch(e){if(e.status===401)setStatus('expired');throw e}}
 
+ // Public OAuth client identifier. Set once when the user provides their App Key.
+ // It is safe to publish the App Key; never include the App Secret or OAuth tokens.
+ const SHARED_APP_KEY='';
  const configKey='studio-dropbox-public-key';
  const EXPECTED_REDIRECT='https://sarahbacay-ui.github.io/sarahs-stitched-gifts-studio/';
  const redirect=()=>EXPECTED_REDIRECT;
  function verifyHost(){if(location.href.split(/[?#]/)[0]!==EXPECTED_REDIRECT)throw Error('Dropbox login requires the approved HTTPS website address. Current page: '+location.origin+location.pathname+'. Do not attempt login from a local file or preview URL.')}
- const appKey=()=>localStorage.getItem(configKey)||'';
+ const appKey=()=>SHARED_APP_KEY||localStorage.getItem(configKey)||'';
  const random=()=>{const a=new Uint8Array(32);crypto.getRandomValues(a);return b64(a)};
  const b64=b=>btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
  async function sha256(s){return b64(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s))))}
- function setKey(key){if(!/^[A-Za-z0-9]{8,80}$/.test(key))throw Error('Invalid Dropbox app key');if(appKey()&&appKey()!==key)disconnect();localStorage.setItem(configKey,key)}
+ function setKey(key){if(SHARED_APP_KEY)throw Error('App Key is managed by Sarah\'s Studio and does not need to be entered on this device');if(!/^[A-Za-z0-9]{8,80}$/.test(key))throw Error('Invalid Dropbox app key');if(appKey()&&appKey()!==key)disconnect();localStorage.setItem(configKey,key)}
  async function connect(){verifyHost();if(!appKey())throw Error('Enter a Dropbox App Key first');const verifier=random(),state=random();sessionStorage.setItem('studio-db-pkce',JSON.stringify({verifier,state,at:Date.now()}));const url=new URL('https://www.dropbox.com/oauth2/authorize');url.search=new URLSearchParams({client_id:appKey(),response_type:'code',token_access_type:'offline',redirect_uri:redirect(),code_challenge:await sha256(verifier),code_challenge_method:'S256',state}).toString();location.assign(url.href)}
  async function callback(){const u=new URL(location.href),code=u.searchParams.get('code'),error=u.searchParams.get('error');if(!code&&!error)return false;verifyHost();history.replaceState(null,'',redirect());if(error)throw Error('Dropbox authorization declined: '+error);const pending=JSON.parse(sessionStorage.getItem('studio-db-pkce')||'null');sessionStorage.removeItem('studio-db-pkce');if(!pending||pending.state!==u.searchParams.get('state')||Date.now()-pending.at>600000)throw Error('Invalid or expired Dropbox authorization');const form=new URLSearchParams({code,grant_type:'authorization_code',client_id:appKey(),redirect_uri:redirect(),code_verifier:pending.verifier});const r=await fetch('https://api.dropboxapi.com/oauth2/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:form});const data=await r.json();if(!r.ok)throw Error(data.error_description||'Authorization failed');if(!data.access_token||!data.refresh_token)throw Error('Dropbox did not provide a refresh token. Reconnect and approve offline access.');
  token=data.access_token;expiresAt=Date.now()+Number(data.expires_in||14400)*1000;
