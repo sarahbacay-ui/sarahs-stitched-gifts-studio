@@ -20,6 +20,13 @@ const StudioDropbox=(()=>{
  async function metadata(path){try{return await(await call(API+'/files/get_metadata',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})})).json()}catch(e){if(e.status===409)return null;throw e}}
  async function download(path){const r=await call(CONTENT+'/files/download',{method:'POST',headers:{'Dropbox-API-Arg':JSON.stringify({path})}});return await r.json()}
  async function upload(path,doc,rev){const mode=rev?{'.tag':'update',update:rev}:{'.tag':'add'};return await(await call(CONTENT+'/files/upload',{method:'POST',headers:{'Content-Type':'application/octet-stream','Dropbox-API-Arg':JSON.stringify({path,mode,autorename:false,mute:true})},body:JSON.stringify(doc)})).json()}
+ async function downloadSharedLink(url){
+  if(!connected())throw Error('Dropbox connection is not active in this browser.');
+  const u=new URL(url);
+  if(u.protocol!=='https:'||!(u.hostname==='dropbox.com'||u.hostname.endsWith('.dropbox.com')))throw Error('Invalid Dropbox file link');
+  const response=await call(CONTENT+'/sharing/get_shared_link_file',{method:'POST',headers:{'Dropbox-API-Arg':JSON.stringify({url})}});
+  return new Uint8Array(await response.arrayBuffer());
+ }
  async function backup(doc){const name=PREFIX+'backup-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+random().slice(0,8)+'.json';return upload(name,doc)}
  // Never silently replace remote or local data. Whole-snapshot conflict policy for prototype.
  async function synchronize(local,validate,ask){const localChecksum=await local.checksum();const meta=await metadata(ROOT);
@@ -32,5 +39,5 @@ const StudioDropbox=(()=>{
   if(remoteChanged){await ask(remote.data);revision=meta.rev;baseChecksum=remoteChecksum;return 'downloaded'}
   const doc=await local.export();const saved=await upload(ROOT,doc,meta.rev);revision=saved.rev;baseChecksum=localChecksum;await backup(doc);return 'uploaded';
  }
- return {setKey,appKey,connect,callback,connected,disconnect,synchronize};
+ return {setKey,appKey,connect,callback,connected,disconnect,synchronize,downloadSharedLink};
 })();
