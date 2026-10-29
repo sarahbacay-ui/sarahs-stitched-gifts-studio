@@ -1,6 +1,7 @@
 // Browser-only PDF text extraction. Original PDFs are not uploaded or saved.
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs';
 const WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
+const TESSERACT = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js';
 
 function reconstruct(items, width, columns) {
   const result = Array.from({ length: columns }, () => []);
@@ -80,6 +81,10 @@ export async function openPdfImporter(onSave) {
   pageRange.setAttribute('aria-label','PDF file page numbers to convert');
   pageLabel.append(pageRange);
   options.append(pageLabel);
+  const forceLabel = control('label', { className: 'pdf-ocr-choice' });
+  const forceOCR = control('input', { type: 'checkbox' });
+  forceLabel.append(forceOCR, document.createTextNode(' Use OCR even if selectable text exists'));
+  options.append(forceLabel);
   const status = control('p', { className: 'help', role: 'status' }, 'Choose a PDF to extract its instructions.');
   const preview = control('div', { className: 'pdf-import-preview' });
   const actions = control('div', { className: 'row pdf-import-actions' });
@@ -89,16 +94,14 @@ export async function openPdfImporter(onSave) {
   panel.append(heading, intro, picker, options, status, preview, actions);
   overlay.append(panel);
   document.body.append(overlay);
-  const close = () => overlay.remove();
+  const close = () => { overlay.remove(); };
   cancel.onclick = close;
-  let pages = null, latest = [], loading = false;
-  const doExtract = async () => {
-    if (!pages || loading) return;
+  let latest = [], loading = false, worker = null;
+  const display = (pages, count, ocrCount) => {
     const n = Number(columns.value);
     latest = Array.from({length:n},()=>[]);
     for (const page of pages) {
-      const segments = reconstruct(page.items, page.width, n);
-      segments.forEach((lines,i)=> {
+      page.forEach((lines,i)=> {
         if (latest[i].length && lines.length) latest[i].push('');
         latest[i].push(...lines);
       });
@@ -112,45 +115,92 @@ export async function openPdfImporter(onSave) {
       section.append(area);
       preview.append(section);
     });
-    save.disabled = !latest.some(lines=>lines.length);
-    status.textContent = 'Review the text and column order before saving. Charts, symbols, and scanned pages may need manual correction.';
+    save.disabled = !latest.some(lines=>lines.some(x=>x.trim()));
+    status.textContent = 'Processed '+count+' selected page(s), OCR used on '+ocrCount+'. Review stitch counts, abbreviations, symbols and column order before saving.';
   };
-  columns.onchange = doExtract;
-  pageRange.onchange = () => { if (picker.files?.[0]) picker.onchange(); };
-  picker.onchange = async () => {
+  const getWorker = async () => {
+    if (!worker) {
+      status.textContent = 'Loading free OCR for scanned pages. The first download may take a moment...';
+      const {createWorker} = await import(TESSERACT);
+      worker = await createWorker('eng');
+    }
+    return worker;
+  };
+  const recognizePage = async (page, n, pageNo) => {
+    const viewportBase = page.getViewport({scale:1});
+    // Keep the longest raster dimension under 2400 pixels for mobile memory.
+    const scale = Math.min(2.5, 2400 / Math.max(viewportBase.width, viewportBase.height));
+    const viewport = page.getViewport({scale});
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
+    const ctx = canvas.getContext('2d', {willReadFrequently:true});
+    if (!ctx) throw new Error('Could not create an image for OCR.');
+    const render = page.render({canvasContext:ctx, viewport});
+    await render.promise;
+    const engine = await getWorker();
+    const extracted = [];
+    try {
+      for(let col=0;col<n;col++) {
+        status.textContent = 'Reading scanned PDF page '+pageNo+', column '+(col+1)+' of '+n+'...';
+        const start = Math.floor(col*canvas.width/n);
+        const end = Math.floor((col+1)*canvas.width/n);
+        const slice = document.createElement('canvas');
+        slice.width = end-start;
+        slice.height = canvas.height;
+        slice.getContext('2d').drawImage(canvas, start,0,slice.width,slice.height,0,0,slice.width,slice.height);
+        const response = await engine.recognize(slice);
+        extracted.push(response.data.text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean));
+        slice.width = 0; slice.height = 0;
+      }
+      return extracted;
+    } finally {
+      canvas.width = 0; canvas.height = 0;
+    }
+  };
+  const processPDF = async () => {
     const file = picker.files?.[0];
-    if (!file) return;
-    loading = true;
-    save.disabled = true;
-    preview.replaceChildren();
-    status.textContent = 'Extracting text from '+file.name+'...';
+    if (!file || loading) return;
+    loading = true; save.disabled = true; preview.replaceChildren();
+    status.textContent = 'Opening '+file.name+'...';
+    let pdf = null;
     try {
       if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') throw new Error('Select a PDF file.');
       const pdfjs = await import(PDFJS);
       pdfjs.GlobalWorkerOptions.workerSrc = WORKER;
-      const task = pdfjs.getDocument({data: new Uint8Array(await file.arrayBuffer())});
-      const doc = await task.promise;
-      pages = [];
-      let count = 0;
-      try {
-        const selected = selectedPages(pageRange.value, doc.numPages);
-        for (const p of selected) {
-          const page = await doc.getPage(p);
-          const text = await page.getTextContent();
+      pdf = await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+      const selection = selectedPages(pageRange.value,pdf.numPages);
+      const n = Number(columns.value), collected = [];
+      let scanned = 0;
+      for (const p of selection) {
+        status.textContent = 'Processing page '+p+' of '+pdf.numPages+'...';
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        const items = content.items.filter(x=>x.str && x.str.trim());
+        const needsOCR = forceOCR.checked || items.length < 6;
+        if (needsOCR) {
+          collected.push(await recognizePage(page,n,p));
+          scanned++;
+        } else {
           const viewport = page.getViewport({scale:1});
-          pages.push({items:text.items, width:viewport.width});
-          count += text.items.filter(x=>x.str && x.str.trim()).length;
+          collected.push(reconstruct(content.items,viewport.width,n));
         }
-      } finally { await doc.destroy(); }
-      if (!count) throw new Error('No selectable text was found. This PDF may be scanned and require OCR, which is not available in this version.');
-      loading = false;
-      await doExtract();
-      status.textContent = 'Extracted '+pages.length+' selected page(s). Review the text, especially column order, charts, and symbols.';
+        page.cleanup();
+      }
+      display(collected,selection.length,scanned);
     } catch (err) {
-      pages = null;
-      status.textContent = 'Could not extract this PDF: '+(err?.message || String(err));
-    } finally { loading = false; }
+      save.disabled = true;
+      preview.replaceChildren();
+      status.textContent = 'Could not convert the selected pages: '+(err?.message||String(err));
+    } finally {
+      loading = false;
+      if (pdf) await pdf.destroy();
+    }
   };
+  columns.onchange = processPDF;
+  pageRange.onchange = processPDF;
+  forceOCR.onchange = processPDF;
+  picker.onchange = processPDF;
   save.onclick = () => {
     const text = [...preview.querySelectorAll('textarea')].map(x=>x.value.trim());
     if (!text.some(Boolean)) return;
