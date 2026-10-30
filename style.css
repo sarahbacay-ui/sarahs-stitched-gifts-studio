@@ -168,3 +168,6 @@
 .studio-startup-message,.studio-startup-failure{margin:24px auto;padding:20px;max-width:640px;background:#fffdfa;color:#343b32;border:1px solid #d7d4c9;border-radius:10px;line-height:1.5}
 .studio-startup-failure h2{font:normal 24px Georgia,serif;margin:0 0 12px}
 .studio-startup-failure button{border:0;border-radius:8px;background:#8b9e83;color:white;padding:12px;font:inherit}
+
+/* Consolidated project controls: labels and selects stay together on narrow screens. */
+.project-filters{display:flex;flex-wrap:wrap;gap:12px;margin:0 0 16px}.filter-pair{display:flex;align-items:center;gap:8px;min-width:0}.filter-pair .label{margin:0;white-space:nowrap;font-size:13px}.filter-pair select.field{min-width:0;width:auto;max-width:100%;font-size:13px}@media(max-width:650px){.project-filters{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}.filter-pair{justify-content:space-between;width:100%}.filter-pair select.field{width:55%;flex:0 1 55%}}
