@@ -8,13 +8,18 @@ const StudioDropbox=(()=>{
  const expiryKey='studio-db-token-expiry';
  const hasRefresh=()=>!!localStorage.getItem(refreshKey);
  const statusKey='studio-db-connection-status';
+ const verifiedKey='studio-db-last-verified';
  const setStatus=(value)=>sessionStorage.setItem(statusKey,value);
  const status=()=>{
   const suffix=hasRefresh()?' · Automatic renewal enabled':' · Reconnect once to enable automatic renewal';
-  if(!connected())return sessionStorage.getItem(statusKey)==='expired'?'Connection expired':hasRefresh()?'Connected (renewal available)':'Not connected';
-  return (sessionStorage.getItem(statusKey)==='verified'?'Connected (verified)':'Connected (not yet verified)')+suffix;
+  if(!connected())return sessionStorage.getItem(statusKey)==='expired'?'Connection expired':'Not connected';
+  const current=sessionStorage.getItem(statusKey);
+  if(current==='verifying')return 'Checking Dropbox connection...' + suffix;
+  if(current==='verified')return 'Connected (verified)' + suffix;
+  if(current==='unavailable')return 'Connected (verification unavailable, will retry)' + suffix;
+  return (localStorage.getItem(verifiedKey)?'Connected (previously verified)':'Connected (verification pending)')+suffix;
  };
- async function testConnection(){if(!connected())throw Error('Connect Dropbox first');try{await call(API+'/files/list_folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:'',limit:1})});setStatus('verified');return true}catch(e){if(e.status===401)setStatus('expired');throw e}}
+ async function testConnection(){if(!connected())throw Error('Connect Dropbox first');try{await call(API+'/files/list_folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:'',limit:1})});setStatus('verified');localStorage.setItem(verifiedKey,String(Date.now()));return true}catch(e){if(e.status===401)setStatus('expired');throw e}}
 
  // Public OAuth client identifier. Set once when the user provides their App Key.
  // It is safe to publish the App Key; never include the App Secret or OAuth tokens.
@@ -32,9 +37,9 @@ const StudioDropbox=(()=>{
  async function callback(){const u=new URL(location.href),code=u.searchParams.get('code'),error=u.searchParams.get('error');if(!code&&!error)return false;verifyHost();history.replaceState(null,'',redirect());if(error)throw Error('Dropbox authorization declined: '+error);const pending=JSON.parse(sessionStorage.getItem('studio-db-pkce')||'null');sessionStorage.removeItem('studio-db-pkce');if(!pending||pending.state!==u.searchParams.get('state')||Date.now()-pending.at>600000)throw Error('Invalid or expired Dropbox authorization');const form=new URLSearchParams({code,grant_type:'authorization_code',client_id:appKey(),redirect_uri:redirect(),code_verifier:pending.verifier});const r=await fetch('https://api.dropboxapi.com/oauth2/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:form});const data=await r.json();if(!r.ok)throw Error(data.error_description||'Authorization failed');if(!data.access_token||!data.refresh_token)throw Error('Dropbox did not provide a refresh token. Reconnect and approve offline access.');
  token=data.access_token;expiresAt=Date.now()+Number(data.expires_in||14400)*1000;
  sessionStorage.setItem(tokenKey,token);sessionStorage.setItem(expiryKey,String(expiresAt));localStorage.setItem(refreshKey,data.refresh_token);
- setStatus('pending');sessionStorage.setItem('studio-db-login-notice','Dropbox authorization completed. Use Test Connection to verify access.');return true}
+ setStatus('pending');sessionStorage.setItem('studio-db-login-notice','Dropbox authorization completed. Connection verification runs automatically.');return true}
  function connected(){token=token||sessionStorage.getItem(tokenKey);expiresAt=expiresAt||Number(sessionStorage.getItem(expiryKey)||0);return !!(token||hasRefresh())}
- function disconnect(){token=null;expiresAt=0;refreshing=null;revision=null;baseChecksum=null;sessionStorage.removeItem(tokenKey);sessionStorage.removeItem(expiryKey);localStorage.removeItem(refreshKey);setStatus('disconnected')}
+ function disconnect(){token=null;expiresAt=0;refreshing=null;revision=null;baseChecksum=null;sessionStorage.removeItem(tokenKey);sessionStorage.removeItem(expiryKey);localStorage.removeItem(refreshKey);localStorage.removeItem(verifiedKey);setStatus('disconnected')}
  async function refreshAccess(){
   if(refreshing)return refreshing;
   const stored=localStorage.getItem(refreshKey);
@@ -99,6 +104,16 @@ const StudioDropbox=(()=>{
   if(remoteChanged){await ask(remote.data);revision=meta.rev;baseChecksum=remoteChecksum;return 'downloaded'}
   const doc=await local.export();const saved=await upload(ROOT,doc,meta.rev);revision=saved.rev;baseChecksum=localChecksum;await backup(doc);return 'uploaded';
  }
- async function restoreConnection(){if(!hasRefresh())return false;try{await accessToken();return true}catch(error){console.warn('Dropbox renewal could not complete:',error);return false}}
+ async function restoreConnection(){
+  if(!connected())return false;
+  setStatus('verifying');
+  try{await testConnection();return true}
+  catch(error){
+   // A temporary network failure must not revoke a renewable authorization.
+   if(connected())setStatus('unavailable');
+   console.warn('Dropbox connection verification could not complete:',error);
+   return false;
+  }
+ }
  return {setKey,appKey,connect,callback,connected,disconnect,synchronize,downloadSharedLink,status,testConnection,restoreConnection};
 })();
