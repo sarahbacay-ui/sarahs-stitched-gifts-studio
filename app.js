@@ -174,6 +174,6 @@ async function syncDropbox(){
  });alert('Dropbox sync: '+result);render();
 }
 async function initialize(){try{const returned=await StudioDropbox.callback();if(returned){page='Backup & Sync';dropboxFeedback=sessionStorage.getItem('studio-db-login-notice')||'Dropbox authorization completed.';sessionStorage.removeItem('studio-db-login-notice')}const existing=await StudioDB.get();if(existing){state=prepareState(existing)}else{const old=localStorage.getItem(KEY);state=old?prepareState(JSON.parse(old)):structuredClone(starter);await StudioDB.put(state);if(old)localStorage.removeItem(KEY)}persistenceReady=true;}catch(e){console.error(e);alert('Storage could not be initialized. Changes may not persist. '+e.message)}
- try{render()}catch(e){console.error('Startup render failed',e);window.StudioStartupFailure?.('Startup rendering failed: '+(e?.message||String(e)))}}
+ StudioDropbox.restoreConnection().then(()=>{if(page==='Backup & Sync')render()}).catch(e=>console.warn('Dropbox restore failed',e));\n  try{render()}catch(e){console.error('Startup render failed',e);window.StudioStartupFailure?.('Startup rendering failed: '+(e?.message||String(e)))}}
 initialize();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
