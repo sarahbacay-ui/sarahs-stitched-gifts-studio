@@ -39,7 +39,7 @@ const assert = require('node:assert/strict');
    await page.locator('.pattern-card #activeSection').selectOption('finishing');
    assert.equal(await page.locator('[data-finishing-task]').first().isChecked(),true,'task remains checked after section switch');
    assert.equal(await page.locator('.video-card').count(),1,'video widget exists');
-   await page.locator('[data-nav="Projects"]').first().click();
+   await page.locator('.bottom-nav [data-nav="Projects"]:visible, .sidebar [data-nav="Projects"]:visible').first().click();
    assert.equal(await page.locator('#projectStatusFilter').count(),1,'status filter exists');
    assert.equal(await page.locator('#projectCraftFilter').count(),1,'craft filter exists');
    await page.locator('[data-editproject]').first().click();
@@ -53,7 +53,7 @@ const assert = require('node:assert/strict');
    await page.locator('#projectStatusSort').selectOption('asc');
    assert.equal(await page.locator('[data-editproject]').count(),1,'sorting retains matching project');
    await page.reload();
-   await page.locator('[data-nav="Projects"]').first().click();
+   await page.locator('.bottom-nav [data-nav="Projects"]:visible, .sidebar [data-nav="Projects"]:visible').first().click();
    assert.match(await page.locator('.list-item').first().innerText(),/On Hold/,'edited status persists');
 
    assert.equal(await page.locator('.pattern-card').count(),1,'pattern widget exists');
