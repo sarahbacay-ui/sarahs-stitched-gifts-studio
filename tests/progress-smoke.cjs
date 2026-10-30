@@ -56,6 +56,7 @@ const assert = require('node:assert/strict');
    await page.locator('.bottom-nav [data-nav="Projects"]:visible, .sidebar [data-nav="Projects"]:visible').first().click();
    assert.match(await page.locator('.list-item').first().innerText(),/On Hold/,'edited status persists');
 
+   await page.locator('.bottom-nav [data-nav="Home"]:visible, .sidebar [data-nav="Home"]:visible').first().click();
    assert.equal(await page.locator('.pattern-card').count(),1,'pattern widget exists');
    if(name==='mobile')assert.equal(await page.locator('.bottom-nav').count() > 0 || await page.locator('[data-action="mobileMore"]').count()>0,true,'mobile navigation exists');
    assert.deepEqual(errors,[],'no uncaught JavaScript errors');
