@@ -11,8 +11,9 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --no-save playwright
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: |
           python3 -m http.server 8765 --bind 127.0.0.1 &
           sleep 2
           node tests/progress-smoke.cjs
+          node tests/integration-smoke.cjs
