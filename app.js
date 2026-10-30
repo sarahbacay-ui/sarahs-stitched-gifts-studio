@@ -23,6 +23,7 @@ function dashboardControls(){return `<div class="layout-controls"><button class=
 
 let persistenceReady=false, pendingWrites=Promise.resolve();
 function persist(){if(!persistenceReady)return;const snapshot=structuredClone(state);pendingWrites=pendingWrites.then(()=>StudioDB.put(snapshot)).catch(e=>{console.error('Save failed',e);alert('Local save failed. Export a backup before closing this page.');});}
+window.StudioPersistence={flush:()=>pendingWrites};
 function versionSnapshot(p){if(!p)return; p.versionSectionStates??={};p.versionSectionStates[p.activeVersion]=Object.fromEntries(p.sections.map(x=>[x.id,{count:x.count,done:x.done}]));}
 function switchVersion(p,next){versionSnapshot(p);p.activeVersion=next;p.versionSectionStates??={};const saved=p.versionSectionStates[next]||{};for(const x of p.sections){x.count=saved[x.id]?.count??0;x.done=saved[x.id]?.done??false;}p.versionSectionStates[next]??=Object.fromEntries(p.sections.map(x=>[x.id,{count:x.count,done:x.done}]));}
 const DEFAULT_FINISHING_TASKS=['Weave in ends','Seam or join pieces','Block project','Attach buttons or other embellishments','Final inspection'];
