@@ -99,5 +99,6 @@ const StudioDropbox=(()=>{
   if(remoteChanged){await ask(remote.data);revision=meta.rev;baseChecksum=remoteChecksum;return 'downloaded'}
   const doc=await local.export();const saved=await upload(ROOT,doc,meta.rev);revision=saved.rev;baseChecksum=localChecksum;await backup(doc);return 'uploaded';
  }
- return {setKey,appKey,connect,callback,connected,disconnect,synchronize,downloadSharedLink,status,testConnection};
+ async function restoreConnection(){if(!hasRefresh())return false;try{await accessToken();return true}catch(error){console.warn('Dropbox renewal could not complete:',error);return false}}
+ return {setKey,appKey,connect,callback,connected,disconnect,synchronize,downloadSharedLink,status,testConnection,restoreConnection};
 })();
