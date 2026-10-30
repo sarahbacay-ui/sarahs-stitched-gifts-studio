@@ -15,6 +15,8 @@ export function insertMark(state,page,rect){
 }
 export async function openPdfReader({url,reading,onChange,onClose,onCounter,mount=null,onMount}){
  const state=normalizeReaderState(reading);
+ const history=[];const snapshot=()=>({marks:structuredClone(state.marks),strokes:structuredClone(state.strokes),notes:structuredClone(state.notes)});
+ const checkpoint=()=>{history.push(snapshot());if(history.length>50)history.shift()};
  let pdf=null,api=null,closed=false,serial=0,rendering=false;
  const inline=!!mount;
  const outer=element('div',inline?'studio-reader-inline':'studio-reader-backdrop');
@@ -29,7 +31,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  const zoomOut=element('button','button secondary small','Zoom −'),zoomStatus=element('span','','100%'),zoomIn=element('button','button secondary small','Zoom +'),rotate=element('button','button secondary small','Rotate');
  toolbar.append(prev,label,next,zoomOut,zoomStatus,zoomIn,rotate);
  const tools=element('div','studio-reader-toolbar');
- const pan=element('button','button secondary small','Pan / Scroll'),ruler=element('button','button secondary small','Ruler'),highlight=element('button','button secondary small','Highlight'),drawTool=element('button','button secondary small','Draw / Pencil'),noteTool=element('button','button secondary small','Add note'),eraseTool=element('button','button secondary small','Eraser'),undo=element('button','button secondary small','Undo highlight');
+ const pan=element('button','button secondary small','Pan / Scroll'),ruler=element('button','button secondary small','Ruler'),highlight=element('button','button secondary small','Highlight'),drawTool=element('button','button secondary small','Draw / Pencil'),noteTool=element('button','button secondary small','Add note'),eraseTool=element('button','button secondary small','Eraser'),undo=element('button','button secondary small','Undo annotation');
  tools.append(pan,ruler,highlight,drawTool,noteTool,eraseTool,undo);
  const area=element('div','studio-reader-workspace');
  const viewport=element('div','studio-reader-scroll'),sheet=element('div','studio-reader-sheet'),overlay=element('div','studio-reader-overlay');
@@ -71,8 +73,9 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    }
    const strokes=state.strokes[key]||[];
    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 1000 1000');svg.setAttribute('preserveAspectRatio','none');Object.assign(svg.style,{position:'absolute',inset:'0',width:'100%',height:'100%',pointerEvents:'none'});
-   for(const stroke of strokes){const path=document.createElementNS('http://www.w3.org/2000/svg','polyline');path.setAttribute('points',(stroke.points||[]).map(p=>`${p.x*1000},${p.y*1000}`).join(' '));path.setAttribute('fill','none');path.setAttribute('stroke','#b34837');path.setAttribute('stroke-width','3');path.setAttribute('stroke-linecap','round');path.setAttribute('stroke-linejoin','round');svg.append(path)}overlay.append(svg);
-   for(const note of state.notes[key]||[]){const pin=element('button','studio-reader-note-pin','Note');pin.type='button';pin.title=note.text;pin.setAttribute('aria-label','Edit note: '+note.text);Object.assign(pin.style,{position:'absolute',left:note.x*100+'%',top:note.y*100+'%',zIndex:'3',pointerEvents:'auto'});pin.onclick=e=>{e.stopPropagation();if(state.mode==='erase'){state.notes[key]=state.notes[key].filter(n=>n!==note);save();draw();return}const value=prompt('Edit note (leave blank to delete)',note.text);if(value===null)return;if(value.trim())note.text=value.trim();else state.notes[key]=state.notes[key].filter(n=>n!==note);save();draw()};overlay.append(pin)}
+   const preview=pointer&&pointer.mode==='draw'&&pointer.page===state.page?pointer.points:null;
+   for(const stroke of [...strokes,...(preview?[{points:preview}]:[])]){const path=document.createElementNS('http://www.w3.org/2000/svg','polyline');path.setAttribute('points',(stroke.points||[]).map(p=>`${p.x*1000},${p.y*1000}`).join(' '));path.setAttribute('fill','none');path.setAttribute('stroke','#b34837');path.setAttribute('stroke-width','3');path.setAttribute('stroke-linecap','round');path.setAttribute('stroke-linejoin','round');svg.append(path)}overlay.append(svg);
+   for(const note of state.notes[key]||[]){const pin=element('button','studio-reader-note-pin','Note');pin.type='button';pin.title=note.text;pin.setAttribute('aria-label','Edit note: '+note.text);Object.assign(pin.style,{position:'absolute',left:note.x*100+'%',top:note.y*100+'%',zIndex:'3',pointerEvents:'auto'});pin.onclick=e=>{e.stopPropagation();if(state.mode==='erase'){checkpoint();state.notes[key]=state.notes[key].filter(n=>n!==note);save();draw();return}const value=prompt('Edit note (leave blank to delete)',note.text);if(value===null)return;checkpoint();if(value.trim())note.text=value.trim();else state.notes[key]=state.notes[key].filter(n=>n!==note);save();draw()};overlay.append(pin)}
    const line=element('div','studio-reader-ruler','Drag ruler to mark your place');
    line.style.top=clamp(Number(state.ruler[key]??.32),0,1)*100+'%';
    // The ruler remains draggable even when Pan / Scroll mode is selected.
@@ -104,13 +107,14 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    };
    line.tabIndex=0;
    overlay.append(line);
-   undo.disabled=!(state.marks[key]?.length);
+   undo.disabled=!history.length;
    pan.setAttribute('aria-pressed',String(state.mode==='pan'));
    ruler.setAttribute('aria-pressed',String(state.mode==='ruler'));
    highlight.setAttribute('aria-pressed',String(state.mode==='highlight'));
    drawTool.setAttribute('aria-pressed',String(state.mode==='draw'));noteTool.setAttribute('aria-pressed',String(state.mode==='note'));eraseTool.setAttribute('aria-pressed',String(state.mode==='erase'));
    // Native touch scrolling works in Pan mode; annotation gestures stay opt-in.
    overlay.style.pointerEvents=state.mode==='pan'?'none':'auto';
+   overlay.style.touchAction=state.mode==='pan'?'auto':'none';
  };
  const closeReader=()=>{
    if(closed)return;
@@ -153,29 +157,29 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  ruler.onclick=()=>{state.mode='ruler';save();draw()};
  highlight.onclick=()=>{state.mode='highlight';save();draw()};
  drawTool.onclick=()=>{state.mode='draw';save();draw()};noteTool.onclick=()=>{state.mode='note';save();draw()};eraseTool.onclick=()=>{state.mode='erase';save();draw()};
- undo.onclick=()=>{state.marks[String(state.page)]?.pop();save();draw()};
+ undo.onclick=()=>{const previous=history.pop();if(!previous)return;state.marks=previous.marks;state.strokes=previous.strokes;state.notes=previous.notes;save();draw()};
  let pointer=null;
  const locate=e=>{const rect=overlay.getBoundingClientRect();return {x:clamp((e.clientX-rect.left)/rect.width,0,1),y:clamp((e.clientY-rect.top)/rect.height,0,1)}};
  overlay.onpointerdown=e=>{
    if(rendering||!pdf||state.mode==='pan')return;
    e.preventDefault();overlay.setPointerCapture(e.pointerId);
-   const at=locate(e);pointer={id:e.pointerId,begin:at,end:at,points:[at]};
+   const at=locate(e);pointer={id:e.pointerId,mode:state.mode,page:state.page,begin:at,end:at,points:[at]};
    if(state.mode==='ruler'){state.ruler[String(state.page)]=at.y;save();draw()}
  };
- overlay.onpointermove=e=>{if(!pointer||pointer.id!==e.pointerId)return;pointer.end=locate(e);if(state.mode==='draw')pointer.points.push(pointer.end);if(state.mode==='ruler'){state.ruler[String(state.page)]=pointer.end.y;draw()}};
+ overlay.onpointermove=e=>{if(!pointer||pointer.id!==e.pointerId)return;pointer.end=locate(e);if(pointer.mode==='draw'){pointer.points.push(pointer.end);draw()}if(state.mode==='ruler'){state.ruler[String(state.page)]=pointer.end.y;draw()}};
  overlay.onpointerup=e=>{
    if(!pointer||pointer.id!==e.pointerId)return;
    const a=pointer.begin,b=locate(e),pointerPoints=pointer.points;pointer=null;
    if(state.mode==='ruler')state.ruler[String(state.page)]=b.y;
-   else if(state.mode==='highlight')insertMark(state,state.page,{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)});
-   else if(state.mode==='draw'){(state.strokes[String(state.page)]??=[]).push({points:[...pointerPoints,a,b].filter(Boolean)});}
-   else if(state.mode==='note'){const value=prompt('Note or comment');if(value?.trim())(state.notes[String(state.page)]??=[]).push({x:b.x,y:b.y,text:value.trim()});}
-   else if(state.mode==='erase'){const key=String(state.page);const distance=(p)=>Math.hypot(p.x-b.x,p.y-b.y);const candidates=[...(state.marks[key]||[]).map((m,i)=>({kind:'marks',i,d:distance({x:m.x+m.w/2,y:m.y+m.h/2})})),...(state.strokes[key]||[]).map((m,i)=>({kind:'strokes',i,d:Math.min(...m.points.map(distance))})),...(state.notes[key]||[]).map((m,i)=>({kind:'notes',i,d:distance(m)}))].sort((x,y)=>x.d-y.d);if(candidates[0]?.d<.08)state[candidates[0].kind][key].splice(candidates[0].i,1);}
+   else if(state.mode==='highlight'){checkpoint();if(!insertMark(state,state.page,{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)}))history.pop();}
+   else if(state.mode==='draw'){checkpoint();(state.strokes[String(state.page)]??=[]).push({points:[...pointerPoints,b]});}
+   else if(state.mode==='note'){const value=prompt('Note or comment');if(value?.trim()){checkpoint();(state.notes[String(state.page)]??=[]).push({x:b.x,y:b.y,text:value.trim()});}}
+   else if(state.mode==='erase'){const key=String(state.page);const distance=(p)=>Math.hypot(p.x-b.x,p.y-b.y);const candidates=[...(state.marks[key]||[]).map((m,i)=>({kind:'marks',i,d:distance({x:m.x+m.w/2,y:m.y+m.h/2})})),...(state.strokes[key]||[]).map((m,i)=>({kind:'strokes',i,d:Math.min(...(m.points||[]).map(distance))})),...(state.notes[key]||[]).map((m,i)=>({kind:'notes',i,d:distance(m)}))].sort((x,y)=>x.d-y.d);if(candidates[0]?.d<.08){checkpoint();state[candidates[0].kind][key].splice(candidates[0].i,1);}}
    save();draw();
  };
  overlay.onpointercancel=e=>{
    if(pointer&&pointer.id===e.pointerId){
-     if(state.mode==='draw'&&pointer.points.length>1)(state.strokes[String(state.page)]??=[]).push({points:pointer.points});
+     if(state.mode==='draw'&&pointer.points.length>1){checkpoint();(state.strokes[String(state.page)]??=[]).push({points:pointer.points});}
      if(state.mode==='ruler')state.ruler[String(state.page)]=pointer.end.y;
      pointer=null;save();
    }
