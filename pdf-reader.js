@@ -5,8 +5,8 @@ const element=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.clas
 export function normalizeReaderState(raw={}){
  const x=raw&&typeof raw==='object'?raw:{};
  return {page:Math.max(1,Math.floor(Number(x.page)||1)),zoom:clamp(Number(x.zoom)||1,.7,2.5),
- rotation:([0,90,180,270].includes(Number(x.rotation))?Number(x.rotation):0),mode:['highlight','ruler','pan'].includes(x.mode)?x.mode:'pan',
- ruler:x.ruler&&typeof x.ruler==='object'?structuredClone(x.ruler):{},marks:x.marks&&typeof x.marks==='object'?structuredClone(x.marks):{}};
+ rotation:([0,90,180,270].includes(Number(x.rotation))?Number(x.rotation):0),mode:['highlight','ruler','pan','draw','note','erase'].includes(x.mode)?x.mode:'pan',
+ ruler:x.ruler&&typeof x.ruler==='object'?structuredClone(x.ruler):{},marks:x.marks&&typeof x.marks==='object'?structuredClone(x.marks):{},strokes:x.strokes&&typeof x.strokes==='object'?structuredClone(x.strokes):{},notes:x.notes&&typeof x.notes==='object'?structuredClone(x.notes):{}};
 }
 export function insertMark(state,page,rect){
  const x=clamp(rect.x,0,1),y=clamp(rect.y,0,1),w=clamp(rect.w,0,1-x),h=clamp(rect.h,0,1-y);
@@ -29,8 +29,8 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  const zoomOut=element('button','button secondary small','Zoom −'),zoomStatus=element('span','','100%'),zoomIn=element('button','button secondary small','Zoom +'),rotate=element('button','button secondary small','Rotate');
  toolbar.append(prev,label,next,zoomOut,zoomStatus,zoomIn,rotate);
  const tools=element('div','studio-reader-toolbar');
- const pan=element('button','button secondary small','Pan / Scroll'),ruler=element('button','button secondary small','Ruler'),highlight=element('button','button secondary small','Highlight'),undo=element('button','button secondary small','Undo highlight');
- tools.append(pan,ruler,highlight,undo);
+ const pan=element('button','button secondary small','Pan / Scroll'),ruler=element('button','button secondary small','Ruler'),highlight=element('button','button secondary small','Highlight'),drawTool=element('button','button secondary small','Draw / Pencil'),noteTool=element('button','button secondary small','Add note'),eraseTool=element('button','button secondary small','Eraser'),undo=element('button','button secondary small','Undo highlight');
+ tools.append(pan,ruler,highlight,drawTool,noteTool,eraseTool,undo);
  const area=element('div','studio-reader-workspace');
  const viewport=element('div','studio-reader-scroll'),sheet=element('div','studio-reader-sheet'),overlay=element('div','studio-reader-overlay');
  viewport.append(sheet);area.append(viewport);
@@ -69,6 +69,10 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
      Object.assign(rect.style,{left:mark.x*100+'%',top:mark.y*100+'%',width:mark.w*100+'%',height:mark.h*100+'%'});
      overlay.append(rect);
    }
+   const strokes=state.strokes[key]||[];
+   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 1000 1000');svg.setAttribute('preserveAspectRatio','none');Object.assign(svg.style,{position:'absolute',inset:'0',width:'100%',height:'100%',pointerEvents:'none'});
+   for(const stroke of strokes){const path=document.createElementNS('http://www.w3.org/2000/svg','polyline');path.setAttribute('points',(stroke.points||[]).map(p=>`${p.x*1000},${p.y*1000}`).join(' '));path.setAttribute('fill','none');path.setAttribute('stroke','#b34837');path.setAttribute('stroke-width','3');path.setAttribute('stroke-linecap','round');path.setAttribute('stroke-linejoin','round');svg.append(path)}overlay.append(svg);
+   for(const note of state.notes[key]||[]){const pin=element('button','studio-reader-note-pin','Note');pin.type='button';pin.title=note.text;pin.setAttribute('aria-label','Edit note: '+note.text);Object.assign(pin.style,{position:'absolute',left:note.x*100+'%',top:note.y*100+'%',zIndex:'3',pointerEvents:'auto'});pin.onclick=e=>{e.stopPropagation();if(state.mode==='erase'){state.notes[key]=state.notes[key].filter(n=>n!==note);save();draw();return}const value=prompt('Edit note (leave blank to delete)',note.text);if(value===null)return;if(value.trim())note.text=value.trim();else state.notes[key]=state.notes[key].filter(n=>n!==note);save();draw()};overlay.append(pin)}
    const line=element('div','studio-reader-ruler','Drag ruler to mark your place');
    line.style.top=clamp(Number(state.ruler[key]??.32),0,1)*100+'%';
    // The ruler remains draggable even when Pan / Scroll mode is selected.
@@ -104,6 +108,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    pan.setAttribute('aria-pressed',String(state.mode==='pan'));
    ruler.setAttribute('aria-pressed',String(state.mode==='ruler'));
    highlight.setAttribute('aria-pressed',String(state.mode==='highlight'));
+   drawTool.setAttribute('aria-pressed',String(state.mode==='draw'));noteTool.setAttribute('aria-pressed',String(state.mode==='note'));eraseTool.setAttribute('aria-pressed',String(state.mode==='erase'));
    // Native touch scrolling works in Pan mode; annotation gestures stay opt-in.
    overlay.style.pointerEvents=state.mode==='pan'?'none':'auto';
  };
@@ -147,25 +152,30 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  pan.onclick=()=>{state.mode='pan';save();draw()};
  ruler.onclick=()=>{state.mode='ruler';save();draw()};
  highlight.onclick=()=>{state.mode='highlight';save();draw()};
+ drawTool.onclick=()=>{state.mode='draw';save();draw()};noteTool.onclick=()=>{state.mode='note';save();draw()};eraseTool.onclick=()=>{state.mode='erase';save();draw()};
  undo.onclick=()=>{state.marks[String(state.page)]?.pop();save();draw()};
  let pointer=null;
  const locate=e=>{const rect=overlay.getBoundingClientRect();return {x:clamp((e.clientX-rect.left)/rect.width,0,1),y:clamp((e.clientY-rect.top)/rect.height,0,1)}};
  overlay.onpointerdown=e=>{
    if(rendering||!pdf||state.mode==='pan')return;
    e.preventDefault();overlay.setPointerCapture(e.pointerId);
-   const at=locate(e);pointer={id:e.pointerId,begin:at,end:at};
+   const at=locate(e);pointer={id:e.pointerId,begin:at,end:at,points:[at]};
    if(state.mode==='ruler'){state.ruler[String(state.page)]=at.y;save();draw()}
  };
- overlay.onpointermove=e=>{if(!pointer||pointer.id!==e.pointerId)return;pointer.end=locate(e);if(state.mode==='ruler'){state.ruler[String(state.page)]=pointer.end.y;draw()}};
+ overlay.onpointermove=e=>{if(!pointer||pointer.id!==e.pointerId)return;pointer.end=locate(e);if(state.mode==='draw')pointer.points.push(pointer.end);if(state.mode==='ruler'){state.ruler[String(state.page)]=pointer.end.y;draw()}};
  overlay.onpointerup=e=>{
    if(!pointer||pointer.id!==e.pointerId)return;
-   const a=pointer.begin,b=locate(e);pointer=null;
+   const a=pointer.begin,b=locate(e),pointerPoints=pointer.points;pointer=null;
    if(state.mode==='ruler')state.ruler[String(state.page)]=b.y;
-   else insertMark(state,state.page,{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)});
+   else if(state.mode==='highlight')insertMark(state,state.page,{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)});
+   else if(state.mode==='draw'){(state.strokes[String(state.page)]??=[]).push({points:[...pointerPoints,a,b].filter(Boolean)});}
+   else if(state.mode==='note'){const value=prompt('Note or comment');if(value?.trim())(state.notes[String(state.page)]??=[]).push({x:b.x,y:b.y,text:value.trim()});}
+   else if(state.mode==='erase'){const key=String(state.page);const distance=(p)=>Math.hypot(p.x-b.x,p.y-b.y);const candidates=[...(state.marks[key]||[]).map((m,i)=>({kind:'marks',i,d:distance({x:m.x+m.w/2,y:m.y+m.h/2})})),...(state.strokes[key]||[]).map((m,i)=>({kind:'strokes',i,d:Math.min(...m.points.map(distance))})),...(state.notes[key]||[]).map((m,i)=>({kind:'notes',i,d:distance(m)}))].sort((x,y)=>x.d-y.d);if(candidates[0]?.d<.08)state[candidates[0].kind][key].splice(candidates[0].i,1);}
    save();draw();
  };
  overlay.onpointercancel=e=>{
    if(pointer&&pointer.id===e.pointerId){
+     if(state.mode==='draw'&&pointer.points.length>1)(state.strokes[String(state.page)]??=[]).push({points:pointer.points});
      if(state.mode==='ruler')state.ruler[String(state.page)]=pointer.end.y;
      pointer=null;save();
    }
