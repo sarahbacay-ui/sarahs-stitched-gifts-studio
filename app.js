@@ -12,8 +12,8 @@ let layoutEdit=false,dragWidget=null;
 // Embedded PDF reader is retained across dashboard redraws, including row-counter updates.
 let inlinePdfReader=null,inlinePdfProject=null,inlinePdfStarting=false;
 let giftMonth=new Date().getMonth(),giftYear=new Date().getFullYear(),selectedGiftDay=null;
-const WIDGET_DEFAULT=['project-selector','video-card','pattern-card','counter-card'];
-const layoutKey='sarah-studio-dashboard-order-v3.7';
+const WIDGET_DEFAULT=['project-selector','counter-card','pattern-card','video-card'];
+const layoutKey='sarah-studio-dashboard-order-v3.8';
 const bannerKey='sarah-studio-banner-photo-v3.2';
 const bannerPosKey='sarah-studio-banner-position-v3.2';
 function widgetOrder(){try{const x=JSON.parse(localStorage.getItem(layoutKey));return Array.isArray(x)&&x.length===4&&WIDGET_DEFAULT.every(y=>x.includes(y))?x:WIDGET_DEFAULT.slice()}catch{return WIDGET_DEFAULT.slice()}}
