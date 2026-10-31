@@ -173,3 +173,29 @@
 .project-filters{display:flex;flex-wrap:wrap;gap:12px;margin:0 0 16px}.filter-pair{display:flex;align-items:center;gap:8px;min-width:0}.filter-pair .label{margin:0;white-space:nowrap;font-size:13px}.filter-pair select.field{min-width:0;width:auto;max-width:100%;font-size:13px}@media(max-width:650px){.project-filters{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}.filter-pair{justify-content:space-between;width:100%}.filter-pair select.field{width:55%;flex:0 1 55%}}
 
 .kanban-board{display:flex;gap:12px;overflow-x:auto;padding:8px 0 20px}.kanban-column{flex:0 0 235px;min-width:235px;background:#f6f5f0;border:1px solid #ddd;border-radius:12px;padding:12px}.kanban-column h2{font-size:16px;margin-bottom:12px}.kanban-column .project-card{background:white;border-radius:8px;margin-bottom:10px;padding:10px;display:grid;gap:8px}.kanban-column .project-card select{width:100%}.project-view-switch{gap:8px;margin:12px 0}.completed-photo-grid{display:flex;flex-wrap:wrap;gap:12px}.completed-photo{width:150px}.completed-photo img{width:150px;height:150px;object-fit:cover;border-radius:8px}.completed-photo-group{padding:12px 0;border-bottom:1px solid #ddd}.completed-photo-group .button{display:inline-block;margin:6px 6px 6px 0}@media(max-width:650px){.kanban-column{flex-basis:80vw;min-width:80vw}}
+
+/* v3.8: responsive knitting workspace. Two small widgets above full-width readers. */
+.dashboard{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
+.dashboard>.card{min-width:0;grid-column:span 1}
+.dashboard>.pattern-card,.dashboard>.video-card{grid-column:1/-1;width:100%}
+.dashboard .project-selector{grid-column:auto}
+.dashboard .counter-card{grid-column:auto}
+.dashboard .studio-inline-player{width:100%;aspect-ratio:16/9}
+.dashboard .home-pdf-reader-mount,.dashboard .studio-reader-inline{min-width:0;max-width:100%}
+.dashboard .studio-reader-inline .studio-reader-scroll{width:100%;height:auto;aspect-ratio:16/9;max-height:none;overflow:auto}
+@media(max-width:650px){
+ .dashboard{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ .dashboard>.card{width:auto;min-width:0;margin-bottom:0;padding:12px}
+ .dashboard>.project-selector,.dashboard>.counter-card{grid-column:span 1}
+ .dashboard>.pattern-card,.dashboard>.video-card{grid-column:1/-1}
+ .dashboard .project-heading{display:block}
+ .dashboard .project-name{font-size:15px;overflow-wrap:anywhere}
+ .dashboard .compact-project-select{max-width:100%;font-size:13px}
+ .dashboard .project-progress{display:block}
+ .dashboard .project-progress .progress-track{margin-top:8px}
+ .dashboard .counter-number{font-size:38px}
+ .dashboard .counter-buttons{gap:6px;margin:10px 0}
+ .dashboard .counter-buttons .round{width:35px;height:35px;font-size:22px;flex-shrink:0}
+ .dashboard .counter-card .row.spread{flex-wrap:wrap}
+ .dashboard .studio-reader-inline .studio-reader-scroll{height:auto;aspect-ratio:16/9;max-height:none}
+}
