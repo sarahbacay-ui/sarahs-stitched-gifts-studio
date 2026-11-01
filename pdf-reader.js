@@ -50,15 +50,16 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  dialog.append(top,status,toolbar,tools,area,fallback);outer.append(dialog);(mount||document.body).append(outer);
  const save=()=>onChange(structuredClone(state));
  let scrollSaveTimer=null;
+ const captureScroll=()=>{state.scrollY=clamp(viewport.scrollTop/Math.max(1,viewport.scrollHeight-viewport.clientHeight),0,1);};
  viewport.addEventListener('scroll',()=>{
   if(rendering||closed)return;
   clearTimeout(scrollSaveTimer);
-  scrollSaveTimer=setTimeout(()=>{state.scrollY=viewport.scrollTop/Math.max(1,viewport.scrollHeight-viewport.clientHeight);save()},250);
+  scrollSaveTimer=setTimeout(()=>{captureScroll();save()},250);
  },{passive:true});
  // iPad Safari may cancel an active pointer when scrolling or backgrounding.
  // Save the last position on cancellation, hide and close, not just pointerup.
- const onVisibility=()=>{if(document.visibilityState==='hidden'&&!closed)save();};
- const onPageHide=()=>{if(!closed)save();};
+ const onVisibility=()=>{if(document.visibilityState==='hidden'&&!closed){clearTimeout(scrollSaveTimer);captureScroll();save();}};
+ const onPageHide=()=>{if(!closed){clearTimeout(scrollSaveTimer);captureScroll();save();}};
  document.addEventListener('visibilitychange',onVisibility);
  window.addEventListener('pagehide',onPageHide);
  let rulerDrag=null;
@@ -124,7 +125,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  };
  const closeReader=()=>{
    if(closed)return;
-   save();
+   clearTimeout(scrollSaveTimer);captureScroll();save();
    closed=true;serial++;
    document.removeEventListener('visibilitychange',onVisibility);
    window.removeEventListener('pagehide',onPageHide);
@@ -150,7 +151,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
      label.textContent='Page '+state.page+' of '+pdf.numPages;
      zoomStatus.textContent=Math.round(state.zoom*100)+'%';
      prev.disabled=state.page===1;next.disabled=state.page===pdf.numPages;
-     draw();viewport.scrollTop=state.scrollY*Math.max(0,viewport.scrollHeight-viewport.clientHeight);status.textContent='Ready. Move the ruler or drag over text to highlight.';
+     draw();viewport.scrollTop=state.scrollY*Math.max(0,viewport.scrollHeight-viewport.clientHeight);requestAnimationFrame(()=>{if(!closed&&token===serial)viewport.scrollTop=state.scrollY*Math.max(0,viewport.scrollHeight-viewport.clientHeight)});status.textContent='Ready. Move the ruler or drag over text to highlight.';
    }catch(e){if(!closed&&token===serial)status.textContent='Could not render page: '+e.message}
    finally{if(token===serial)rendering=false}
  };
