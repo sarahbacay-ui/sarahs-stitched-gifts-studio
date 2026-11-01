@@ -109,22 +109,37 @@ const StudioDropbox=(()=>{
  async function synchronizeAutomatic(local,validate,apply){
   if(!connected())return 'not connected';
   const baseline=localStorage.getItem(syncBaselineKey);
-  if(!baseline)return 'manual setup required';
   const checksum=await local.checksum();
   const meta=await metadata(ROOT);
-  if(!meta)return 'remote missing, manual review required';
-  const remote=await download(ROOT);await validate(remote);
+  if(!meta){
+   if(baseline)return 'needs attention: Dropbox copy missing';
+   if(await local.isDemo())return 'waiting for actual project data';
+   const doc=await local.export();
+   if(doc.checksum!==checksum)return 'local changed, retrying';
+   const saved=await upload(ROOT,doc);
+   revision=saved.rev;markSynced(checksum);
+   await backup(doc);
+   return 'uploaded';
+  }
+  const remote=await download(ROOT);
+  await validate(remote);
   const remoteChecksum=remote.checksum;
-  if(await local.checksum()!==checksum)return 'local changed during sync, retry required';
-  if(checksum===remoteChecksum){markSynced(checksum);return 'already up to date'}
-  if(checksum!==baseline&&remoteChecksum!==baseline)return 'conflict, manual review required';
+  if(await local.checksum()!==checksum)return 'local changed, retrying';
+  if(checksum===remoteChecksum){revision=meta.rev;markSynced(checksum);return 'already up to date'}
+  if(!baseline){
+   if(!(await local.isDemo()))return 'needs attention: local and Dropbox data differ; neither was replaced';
+   await apply(remote.data,checksum);
+   revision=meta.rev;markSynced(remoteChecksum);
+   return 'downloaded';
+  }
+  if(checksum!==baseline&&remoteChecksum!==baseline)return 'needs attention: both devices changed';
   if(remoteChecksum!==baseline){
-   await apply(remote.data);
-   markSynced(remoteChecksum);
+   await apply(remote.data,checksum);
+   revision=meta.rev;markSynced(remoteChecksum);
    return 'downloaded';
   }
   const doc=await local.export();
-  if(doc.checksum!==checksum)return 'local changed during sync, retry required';
+  if(doc.checksum!==checksum)return 'local changed, retrying';
   const saved=await upload(ROOT,doc,meta.rev);
   revision=saved.rev;markSynced(checksum);
   return 'uploaded';
