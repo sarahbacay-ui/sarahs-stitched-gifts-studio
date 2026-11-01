@@ -2,7 +2,9 @@
 const StudioDropbox=(()=>{
  const API='https://api.dropboxapi.com/2', CONTENT='https://content.dropboxapi.com/2';
  const ROOT='/studio-current.json', PREFIX='/backups/';
- let token=null, revision=null, baseChecksum=null, expiresAt=0, refreshing=null;
+ let token=null, revision=null, baseChecksum=localStorage.getItem('studio-dropbox-sync-baseline-v1'), expiresAt=0, refreshing=null;
+ const syncBaselineKey='studio-dropbox-sync-baseline-v1';
+ const markSynced=checksum=>{baseChecksum=checksum;localStorage.setItem(syncBaselineKey,checksum)};
  const refreshKey='studio-db-refresh-token';
  const tokenKey='studio-db-token';
  const expiryKey='studio-db-token-expiry';
@@ -39,7 +41,7 @@ const StudioDropbox=(()=>{
  sessionStorage.setItem(tokenKey,token);sessionStorage.setItem(expiryKey,String(expiresAt));localStorage.setItem(refreshKey,data.refresh_token);
  setStatus('pending');sessionStorage.setItem('studio-db-login-notice','Dropbox authorization completed. Connection verification runs automatically.');return true}
  function connected(){token=token||sessionStorage.getItem(tokenKey);expiresAt=expiresAt||Number(sessionStorage.getItem(expiryKey)||0);return !!(token||hasRefresh())}
- function disconnect(){token=null;expiresAt=0;refreshing=null;revision=null;baseChecksum=null;sessionStorage.removeItem(tokenKey);sessionStorage.removeItem(expiryKey);localStorage.removeItem(refreshKey);localStorage.removeItem(verifiedKey);setStatus('disconnected')}
+ function disconnect(){token=null;expiresAt=0;refreshing=null;revision=null;baseChecksum=null;localStorage.removeItem(syncBaselineKey);sessionStorage.removeItem(tokenKey);sessionStorage.removeItem(expiryKey);localStorage.removeItem(refreshKey);localStorage.removeItem(verifiedKey);setStatus('disconnected')}
  async function refreshAccess(){
   if(refreshing)return refreshing;
   const stored=localStorage.getItem(refreshKey);
@@ -95,14 +97,37 @@ const StudioDropbox=(()=>{
  async function backup(doc){const name=PREFIX+'backup-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+random().slice(0,8)+'.json';return upload(name,doc)}
  // Never silently replace remote or local data. Whole-snapshot conflict policy for prototype.
  async function synchronize(local,validate,ask){const localChecksum=await local.checksum();const meta=await metadata(ROOT);
-  if(!meta){if(!confirm('No Dropbox studio file exists. Upload this device’s current data as the first cloud copy?'))return 'cancelled';const doc=await local.export();const saved=await upload(ROOT,doc);revision=saved.rev;baseChecksum=localChecksum;await backup(doc);return 'uploaded';}
+  if(!meta){if(!confirm('No Dropbox studio file exists. Upload this device’s current data as the first cloud copy?'))return 'cancelled';const doc=await local.export();const saved=await upload(ROOT,doc);revision=saved.rev;markSynced(localChecksum);await backup(doc);return 'uploaded';}
   const remote=await download(ROOT);await validate(remote);const remoteChecksum=remote.checksum;
-  if(baseChecksum===null){const choice=prompt('Dropbox contains a Studio backup. Type DOWNLOAD to replace this device’s data, UPLOAD to replace the Dropbox copy, or CANCEL. Export a local backup first if needed.','CANCEL');if(choice==='DOWNLOAD'){await ask(remote.data);revision=meta.rev;baseChecksum=remoteChecksum;return 'downloaded'}if(choice==='UPLOAD'){const doc=await local.export();const saved=await upload(ROOT,doc,meta.rev);revision=saved.rev;baseChecksum=localChecksum;await backup(doc);return 'uploaded'}return 'cancelled'}
+  if(baseChecksum===null){const choice=prompt('Dropbox contains a Studio backup. Type DOWNLOAD to replace this device’s data, UPLOAD to replace the Dropbox copy, or CANCEL. Export a local backup first if needed.','CANCEL');if(choice==='DOWNLOAD'){await ask(remote.data);revision=meta.rev;markSynced(remoteChecksum);return 'downloaded'}if(choice==='UPLOAD'){const doc=await local.export();const saved=await upload(ROOT,doc,meta.rev);revision=saved.rev;markSynced(localChecksum);await backup(doc);return 'uploaded'}return 'cancelled'}
   const localChanged=localChecksum!==baseChecksum,remoteChanged=remoteChecksum!==baseChecksum;
   if(!localChanged&&!remoteChanged){revision=meta.rev;return 'already up to date'}
-  if(remoteChanged&&localChanged){const choice=prompt('Sync conflict: both devices changed data. Type DOWNLOAD to keep Dropbox, UPLOAD to keep this device, or CANCEL. Neither copy is overwritten automatically.','CANCEL');if(choice==='DOWNLOAD'){await ask(remote.data);revision=meta.rev;baseChecksum=remoteChecksum;return 'downloaded'}if(choice==='UPLOAD'){const doc=await local.export();await backup(remote);const saved=await upload(ROOT,doc,meta.rev);revision=saved.rev;baseChecksum=localChecksum;await backup(doc);return 'uploaded'}return 'conflict postponed'}
-  if(remoteChanged){await ask(remote.data);revision=meta.rev;baseChecksum=remoteChecksum;return 'downloaded'}
-  const doc=await local.export();const saved=await upload(ROOT,doc,meta.rev);revision=saved.rev;baseChecksum=localChecksum;await backup(doc);return 'uploaded';
+  if(remoteChanged&&localChanged){const choice=prompt('Sync conflict: both devices changed data. Type DOWNLOAD to keep Dropbox, UPLOAD to keep this device, or CANCEL. Neither copy is overwritten automatically.','CANCEL');if(choice==='DOWNLOAD'){await ask(remote.data);revision=meta.rev;markSynced(remoteChecksum);return 'downloaded'}if(choice==='UPLOAD'){const doc=await local.export();await backup(remote);const saved=await upload(ROOT,doc,meta.rev);revision=saved.rev;markSynced(localChecksum);await backup(doc);return 'uploaded'}return 'conflict postponed'}
+  if(remoteChanged){await ask(remote.data);revision=meta.rev;markSynced(remoteChecksum);return 'downloaded'}
+  const doc=await local.export();const saved=await upload(ROOT,doc,meta.rev);revision=saved.rev;markSynced(localChecksum);await backup(doc);return 'uploaded';
+ }
+ async function synchronizeAutomatic(local,validate,apply){
+  if(!connected())return 'not connected';
+  const baseline=localStorage.getItem(syncBaselineKey);
+  if(!baseline)return 'manual setup required';
+  const checksum=await local.checksum();
+  const meta=await metadata(ROOT);
+  if(!meta)return 'remote missing, manual review required';
+  const remote=await download(ROOT);await validate(remote);
+  const remoteChecksum=remote.checksum;
+  if(await local.checksum()!==checksum)return 'local changed during sync, retry required';
+  if(checksum===remoteChecksum){markSynced(checksum);return 'already up to date'}
+  if(checksum!==baseline&&remoteChecksum!==baseline)return 'conflict, manual review required';
+  if(remoteChecksum!==baseline){
+   await apply(remote.data);
+   markSynced(remoteChecksum);
+   return 'downloaded';
+  }
+  const doc=await local.export();
+  if(doc.checksum!==checksum)return 'local changed during sync, retry required';
+  const saved=await upload(ROOT,doc,meta.rev);
+  revision=saved.rev;markSynced(checksum);
+  return 'uploaded';
  }
  async function restoreConnection(){
   if(!connected())return false;
@@ -115,5 +140,5 @@ const StudioDropbox=(()=>{
    return false;
   }
  }
- return {setKey,appKey,connect,callback,connected,disconnect,synchronize,downloadSharedLink,status,testConnection,restoreConnection};
+ return {setKey,appKey,connect,callback,connected,disconnect,synchronize,synchronizeAutomatic,downloadSharedLink,status,testConnection,restoreConnection};
 })();
