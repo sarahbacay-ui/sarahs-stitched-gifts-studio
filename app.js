@@ -186,7 +186,15 @@ async function digest(value){const bytes=new TextEncoder().encode(JSON.stringify
 async function exportBackup(){versionSnapshot(active());await pendingWrites;const data=structuredClone(state);const backup={format:'sarah-studio-backup',version:2,exportedAt:new Date().toISOString(),checksumAlgorithm:'SHA-256',checksum:await digest(data),data};const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob),link=document.createElement('a');link.href=u;link.download='sarahs-studio-backup-'+new Date().toISOString().slice(0,10)+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(u),10000)}
 async function validateBackup(x){if(x.format!=='sarah-studio-backup'||![1,2].includes(x.version))throw Error('Unsupported backup format');prepareState(structuredClone(x.data));if(x.version===2){if(x.checksumAlgorithm!=='SHA-256'||!x.checksum)throw Error('Missing backup checksum');if(await digest(x.data)!==x.checksum)throw Error('Backup checksum mismatch: file may be damaged or modified');}}
 let autoSyncTimer=null,autoSyncBusy=false,autoSyncStatus='Not synchronized';
-const isStarterOnly=()=>state.projects.length===1&&state.projects[0].id==='p1'&&state.projects[0].sections?.length===2&&state.projects[0].sections[0].count===24&&state.projects[0].sections[1].count===0&&!state.projects[0].dropboxPdfUrl&&!state.projects[0].history?.length&&!state.projects[0].notes?.length&&!state.projects[0].photos?.length&&!state.yarn.length&&!state.tools.length&&!state.gifts.length&&!state.ideas.length;
+const isStarterOnly=()=>{
+ const p=state.projects[0];
+ return state.projects.length===1&&p?.id==='p1'&&p.name==='Cozy Cardigan'&&p.craftType==='Knitting'
+  &&p.sections?.length===2&&p.sections[0].id==='s1'&&p.sections[0].name==='Ribbed Border'&&p.sections[0].rows===40&&p.sections[0].count===24
+  &&p.sections[1].id==='s2'&&p.sections[1].name==='Body'&&p.sections[1].rows===100&&p.sections[1].count===0
+  &&p.versions?.length===1&&p.versions[0].id==='v1'&&p.versions[0].content===starter.projects[0].versions[0].content
+  &&!p.dropboxPdfUrl&&!p.pdfReading&&!p.history?.length&&!p.notes?.length&&!p.photos?.length
+  &&!state.yarn.length&&!state.tools.length&&!state.gifts.length&&!state.ideas.length;
+};
 function scheduleAutoSync(delay=1500){if(autoSyncTimer)clearTimeout(autoSyncTimer);autoSyncTimer=setTimeout(()=>{autoSyncTimer=null;autoSyncDropbox().catch(console.warn)},delay)}
 setInterval(()=>{if(document.visibilityState==='visible')scheduleAutoSync(0)},30000);
 async function autoSyncDropbox(){
