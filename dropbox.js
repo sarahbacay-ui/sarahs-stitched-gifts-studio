@@ -41,7 +41,7 @@ const StudioDropbox=(()=>{
  sessionStorage.setItem(tokenKey,token);sessionStorage.setItem(expiryKey,String(expiresAt));localStorage.setItem(refreshKey,data.refresh_token);
  setStatus('pending');sessionStorage.setItem('studio-db-login-notice','Dropbox authorization completed. Connection verification runs automatically.');return true}
  function connected(){token=token||sessionStorage.getItem(tokenKey);expiresAt=expiresAt||Number(sessionStorage.getItem(expiryKey)||0);return !!(token||hasRefresh())}
- function disconnect(){token=null;expiresAt=0;refreshing=null;revision=null;baseChecksum=null;sessionStorage.removeItem(tokenKey);sessionStorage.removeItem(expiryKey);localStorage.removeItem(refreshKey);localStorage.removeItem(verifiedKey);setStatus('disconnected')}
+ function disconnect(){token=null;expiresAt=0;refreshing=null;revision=null;baseChecksum=null;localStorage.removeItem(syncBaselineKey);sessionStorage.removeItem(tokenKey);sessionStorage.removeItem(expiryKey);localStorage.removeItem(refreshKey);localStorage.removeItem(verifiedKey);setStatus('disconnected')}
  async function refreshAccess(){
   if(refreshing)return refreshing;
   const stored=localStorage.getItem(refreshKey);
