@@ -50,7 +50,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  dialog.append(top,status,toolbar,tools,area,fallback);outer.append(dialog);(mount||document.body).append(outer);
  const save=()=>onChange(structuredClone(state));
  let scrollSaveTimer=null;
- const captureScroll=()=>{state.scrollY=clamp(viewport.scrollTop/Math.max(1,viewport.scrollHeight-viewport.clientHeight),0,1);};
+ const captureScroll=()=>{if(!pdf||rendering||viewport.scrollHeight<=viewport.clientHeight)return;state.scrollY=clamp(viewport.scrollTop/(viewport.scrollHeight-viewport.clientHeight),0,1);};
  viewport.addEventListener('scroll',()=>{
   if(rendering||closed)return;
   clearTimeout(scrollSaveTimer);
@@ -155,7 +155,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    }catch(e){if(!closed&&token===serial)status.textContent='Could not render page: '+e.message}
    finally{if(token===serial)rendering=false}
  };
- const navigate=n=>{if(!pdf)return;const p=clamp(n,1,pdf.numPages);if(p!==state.page){state.page=p;state.scrollY=0;save();paint()}};
+ const navigate=n=>{if(!pdf)return;const p=clamp(n,1,pdf.numPages);if(p!==state.page){clearTimeout(scrollSaveTimer);state.page=p;state.scrollY=0;save();paint()}};
  prev.onclick=()=>navigate(state.page-1);next.onclick=()=>navigate(state.page+1);
  zoomOut.onclick=()=>{state.zoom=clamp(Math.round((state.zoom-.2)*10)/10,.7,2.5);save();paint()};
  zoomIn.onclick=()=>{state.zoom=clamp(Math.round((state.zoom+.2)*10)/10,.7,2.5);save();paint()};
