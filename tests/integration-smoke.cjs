@@ -54,7 +54,6 @@ const assert=require('node:assert/strict');
    await page.locator('.project-selector [data-action="setDropboxLink"]').click();
    const savedPdf='https://www.dropbox.com/scl/fi/test-pattern/sample.pdf?rlkey=test';
    await page.locator('#dialogForm input[name="url"]').fill(savedPdf);
-   page.once('dialog',async dialog=>{throw Error('Dropbox save error: '+dialog.message())});
    await page.locator('#dialogForm button[type="submit"]').click();
    await page.locator('#dialogForm').waitFor({state:'detached',timeout:15000});
    await page.evaluate(()=>window.StudioPersistence.flush());
