@@ -2,7 +2,7 @@
 const StudioDropbox=(()=>{
  const API='https://api.dropboxapi.com/2', CONTENT='https://content.dropboxapi.com/2';
  const ROOT='/studio-current.json', PREFIX='/backups/';
- let token=null, revision=null, baseChecksum=null, expiresAt=0, refreshing=null;
+ let token=null, revision=null, baseChecksum=localStorage.getItem('studio-dropbox-sync-baseline-v1'), expiresAt=0, refreshing=null;
  const syncBaselineKey='studio-dropbox-sync-baseline-v1';
  const markSynced=checksum=>{baseChecksum=checksum;localStorage.setItem(syncBaselineKey,checksum)};
  const refreshKey='studio-db-refresh-token';
@@ -115,6 +115,7 @@ const StudioDropbox=(()=>{
   if(!meta)return 'remote missing, manual review required';
   const remote=await download(ROOT);await validate(remote);
   const remoteChecksum=remote.checksum;
+  if(await local.checksum()!==checksum)return 'local changed during sync, retry required';
   if(checksum===remoteChecksum){markSynced(checksum);return 'already up to date'}
   if(checksum!==baseline&&remoteChecksum!==baseline)return 'conflict, manual review required';
   if(remoteChecksum!==baseline){
@@ -123,6 +124,7 @@ const StudioDropbox=(()=>{
    return 'downloaded';
   }
   const doc=await local.export();
+  if(doc.checksum!==checksum)return 'local changed during sync, retry required';
   const saved=await upload(ROOT,doc,meta.rev);
   revision=saved.rev;markSynced(checksum);
   return 'uploaded';
