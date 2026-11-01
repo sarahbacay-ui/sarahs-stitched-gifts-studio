@@ -5,7 +5,7 @@ const element=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.clas
 export function normalizeReaderState(raw={}){
  const x=raw&&typeof raw==='object'?raw:{};
  return {page:Math.max(1,Math.floor(Number(x.page)||1)),zoom:clamp(Number(x.zoom)||1,.7,2.5),
- rotation:([0,90,180,270].includes(Number(x.rotation))?Number(x.rotation):0),mode:['highlight','ruler','pan','draw','note','erase'].includes(x.mode)?x.mode:'pan',
+ scrollY:clamp(Number(x.scrollY)||0,0,1),rotation:([0,90,180,270].includes(Number(x.rotation))?Number(x.rotation):0),mode:['highlight','ruler','pan','draw','note','erase'].includes(x.mode)?x.mode:'pan',
  ruler:x.ruler&&typeof x.ruler==='object'?structuredClone(x.ruler):{},marks:x.marks&&typeof x.marks==='object'?structuredClone(x.marks):{},strokes:x.strokes&&typeof x.strokes==='object'?structuredClone(x.strokes):{},notes:x.notes&&typeof x.notes==='object'?structuredClone(x.notes):{}};
 }
 export function insertMark(state,page,rect){
@@ -49,6 +49,12 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  fallback.append(element('p','','Dropbox could not open the PDF. Select the same PDF from Files instead.'),fallbackPick);
  dialog.append(top,status,toolbar,tools,area,fallback);outer.append(dialog);(mount||document.body).append(outer);
  const save=()=>onChange(structuredClone(state));
+ let scrollSaveTimer=null;
+ viewport.addEventListener('scroll',()=>{
+  if(rendering||closed)return;
+  clearTimeout(scrollSaveTimer);
+  scrollSaveTimer=setTimeout(()=>{state.scrollY=viewport.scrollTop/Math.max(1,viewport.scrollHeight-viewport.clientHeight);save()},250);
+ },{passive:true});
  // iPad Safari may cancel an active pointer when scrolling or backgrounding.
  // Save the last position on cancellation, hide and close, not just pointerup.
  const onVisibility=()=>{if(document.visibilityState==='hidden'&&!closed)save();};
@@ -144,11 +150,11 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
      label.textContent='Page '+state.page+' of '+pdf.numPages;
      zoomStatus.textContent=Math.round(state.zoom*100)+'%';
      prev.disabled=state.page===1;next.disabled=state.page===pdf.numPages;
-     draw();status.textContent='Ready. Move the ruler or drag over text to highlight.';
+     draw();viewport.scrollTop=state.scrollY*Math.max(0,viewport.scrollHeight-viewport.clientHeight);status.textContent='Ready. Move the ruler or drag over text to highlight.';
    }catch(e){if(!closed&&token===serial)status.textContent='Could not render page: '+e.message}
    finally{if(token===serial)rendering=false}
  };
- const navigate=n=>{if(!pdf)return;const p=clamp(n,1,pdf.numPages);if(p!==state.page){state.page=p;save();paint()}};
+ const navigate=n=>{if(!pdf)return;const p=clamp(n,1,pdf.numPages);if(p!==state.page){state.page=p;state.scrollY=0;save();paint()}};
  prev.onclick=()=>navigate(state.page-1);next.onclick=()=>navigate(state.page+1);
  zoomOut.onclick=()=>{state.zoom=clamp(Math.round((state.zoom-.2)*10)/10,.7,2.5);save();paint()};
  zoomIn.onclick=()=>{state.zoom=clamp(Math.round((state.zoom+.2)*10)/10,.7,2.5);save();paint()};
