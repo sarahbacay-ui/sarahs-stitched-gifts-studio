@@ -34,10 +34,12 @@ function normalizedProject(p){finishingTasks(p);if(p.status==='In progress')p.st
 function prepareState(x){if(!x||!Array.isArray(x.projects))throw Error('Invalid project data');for(const p of x.projects){if(!Array.isArray(p.sections)||!Array.isArray(p.versions))throw Error('Invalid project sections or versions');normalizedProject(p);}return x;}
 
 function load(){try{const x=JSON.parse(localStorage.getItem(KEY));return x&&Array.isArray(x.projects)?x:structuredClone(starter)}catch{return structuredClone(starter)}}
-function markDataChange(){const at=new Date().toISOString();state.updated=at;state.dataChangedAt=at;}
+function markDataChange(){const previous=Date.parse(state.dataChangedAt||'')||0;const at=new Date(Math.max(Date.now(),previous+1)).toISOString();state.updated=at;state.dataChangedAt=at;}
 function save(dataChanged=true){if(dataChanged){versionSnapshot(active());markDataChange()}persist();render()}
-function syncSnapshot(){const x=structuredClone(state);delete x.active;return x}
+function syncCanonical(data){const x=prepareState(structuredClone(data));delete x.active;return x}
+function syncSnapshot(){return syncCanonical(state)}
 async function syncChecksum(){return digest(syncSnapshot())}
+async function syncChecksumOf(data){return digest(syncCanonical(data))}
 async function syncExport(){const data=syncSnapshot();return {format:'sarah-studio-backup',version:2,exportedAt:new Date().toISOString(),checksumAlgorithm:'SHA-256',checksum:await digest(data),data}}
 const id=()=>crypto.randomUUID?.()||String(Date.now()+Math.random());
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -209,7 +211,7 @@ async function autoSyncDropbox(){
  try{
   await pendingWrites;
   autoSyncStatus='Syncing';
-  const local={checksum:syncChecksum,isDemo:async()=>isStarterOnly(),export:syncExport};
+  const local={checksum:syncChecksum,checksumOf:syncChecksumOf,isDemo:async()=>isStarterOnly(),export:syncExport};
   const result=await StudioDropbox.synchronizeAutomatic(local,validateBackup,async (remote,expectedChecksum)=>{
    await pendingWrites;
    if(await syncChecksum()!==expectedChecksum)throw Error('Local data changed during download; retry safely');
@@ -227,12 +229,19 @@ async function autoSyncDropbox(){
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')scheduleAutoSync(0)});
 window.addEventListener('online',()=>scheduleAutoSync(0));
 async function syncDropbox(){
- versionSnapshot(active());await pendingWrites;
- const local={checksum:()=>digest(state),export:async()=>{const data=structuredClone(state);return {format:'sarah-studio-backup',version:2,exportedAt:new Date().toISOString(),checksumAlgorithm:'SHA-256',checksum:await digest(data),data}}};
- const result=await StudioDropbox.synchronize(local,validateBackup,async remote=>{
-  if(!confirm('Replace all local records with Dropbox data? Export a backup before continuing.'))throw Error('Download cancelled');
-  state=prepareState(structuredClone(remote));await StudioDB.put(state);page='Home';render();
- });alert('Dropbox sync: '+result);render();
+ await pendingWrites;
+ const local={checksum:syncChecksum,checksumOf:syncChecksumOf,isDemo:async()=>isStarterOnly(),export:syncExport};
+ const result=await StudioDropbox.synchronize(local,validateBackup,async (remote,expectedChecksum)=>{
+  await pendingWrites;
+  if(await syncChecksum()!==expectedChecksum)throw Error('Local data changed during download; retry safely');
+  const incoming=prepareState(structuredClone(remote));
+  const selected=state.active;
+  incoming.active=incoming.projects.some(p=>p.id===selected&&!p.archived)?selected:incoming.projects.find(p=>!p.archived)?.id;
+  await StudioDB.put(incoming);state=incoming;page='Home';render();
+ });
+ autoSyncStatus=result;
+ if(['uploaded','downloaded','already up to date'].includes(result))localStorage.setItem('studio-last-auto-sync',new Date().toISOString());
+ alert('Dropbox sync: '+result);render();
 }
 async function initialize(){try{const returned=await StudioDropbox.callback();if(returned){page='Backup & Sync';dropboxFeedback=sessionStorage.getItem('studio-db-login-notice')||'Dropbox authorization completed.';sessionStorage.removeItem('studio-db-login-notice')}const existing=await StudioDB.get();if(existing){state=prepareState(existing)}else{const old=localStorage.getItem(KEY);state=old?prepareState(JSON.parse(old)):structuredClone(starter);await StudioDB.put(state);if(old)localStorage.removeItem(KEY)}persistenceReady=true;}catch(e){console.error(e);alert('Storage could not be initialized. Changes may not persist. '+e.message)}
  StudioDropbox.restoreConnection().then(()=>{scheduleAutoSync(0);if(page==='Backup & Sync')render()}).catch(e=>console.warn('Dropbox restore failed',e));
