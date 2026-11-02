@@ -214,7 +214,9 @@ async function runSyncPolicyTests(){
       onChange:x=>{window.pdfNotesState=x},onCounter:{get:()=>({section:'',count:0,rows:0})}
     });
    });
-   await page.locator('.studio-reader-status').filter({hasText:'Ready'}).waitFor({timeout:15000});
+   await page.waitForFunction(()=>{const x=document.querySelector('.studio-reader-status')?.textContent||'';return x.includes('Ready')||x.startsWith('Cannot open')||x.startsWith('Could not render')},{timeout:15000});
+   const pdfStatus=await page.locator('.studio-reader-status').innerText();
+   assert.match(pdfStatus,/Ready/,'PDF initialization: '+pdfStatus);
    const pin=page.locator('.studio-reader-note-pin');
    assert.equal(await pin.count(),1,'existing note pin remains visible');
    assert.equal(await pin.first().innerText(),'','note pin uses icon rather than word');
