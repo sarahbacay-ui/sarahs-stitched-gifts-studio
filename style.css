@@ -213,3 +213,15 @@
 .studio-reader-note-actions .button{min-height:44px;flex:1}
 .studio-reader-note-delete{border:1px solid #b9473b;color:#9e3027}
 @media(max-width:650px){.studio-reader-note-panel{padding:16px}.studio-reader-note-actions{flex-direction:column}.studio-reader-note-pin{width:40px;height:40px}}
+
+/* Compact note marker: generous transparent tap area, small translucent glyph. */
+.studio-reader-note-pin{
+ width:36px;height:36px;min-width:36px;border:0;border-radius:0;padding:0;
+ transform:translate(-100%,-50%);background:transparent;box-shadow:none;
+ color:rgba(0,107,104,.72);outline-offset:1px;
+}
+.studio-reader-note-pin svg{width:18px;height:18px;stroke-width:1.8;filter:drop-shadow(0 0 1px rgba(255,255,255,.8))}
+.studio-reader-note-pin:hover,.studio-reader-note-pin:focus-visible{
+ background:transparent;outline:2px solid rgba(0,107,104,.35);border-radius:7px;
+}
+@media(max-width:650px){.studio-reader-note-pin{width:38px;height:38px;min-width:38px}.studio-reader-note-pin svg{width:18px;height:18px}}

@@ -86,7 +86,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
      if(!value){editor.setCustomValidity('Enter note text before saving.');editor.reportValidity();return}
      editor.setCustomValidity('');
      checkpoint();
-     if(creating)(state.notes[pageKey]??=[]).push({x:position.x,y:position.y,text:value});
+     if(creating){(state.notes[pageKey]??=[]).push({x:position.x,y:position.y,text:value});state.mode='pan'}
      else note.text=value;
      closeNoteDialog();save();draw();
    };
@@ -141,7 +141,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
      Object.assign(pin.style,{position:'absolute',left:note.x*100+'%',top:note.y*100+'%',zIndex:'3',pointerEvents:'auto'});
      // Prevent note-placement gestures on the page from intercepting existing-note taps.
      for(const eventName of ['pointerdown','pointerup','pointercancel'])pin.addEventListener(eventName,e=>e.stopPropagation());
-     pin.onclick=e=>{e.preventDefault();e.stopPropagation();showNoteDialog(note,key)};
+     pin.onclick=e=>{e.preventDefault();e.stopPropagation();pointer=null;showNoteDialog(note,key)};
      overlay.append(pin);
    }
    const line=element('div','studio-reader-ruler','Drag ruler to mark your place');
