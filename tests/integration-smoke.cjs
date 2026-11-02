@@ -241,7 +241,8 @@ async function runSyncPolicyTests(){
     return {color:style.color,opacity:svg.opacity,borderWidth:style.borderTopWidth,borderRadius:style.borderTopLeftRadius,fill:svg.fill};
    });
    assert.equal(markerStyle.color,'rgb(224, 173, 0)','page icon is yellow');
-   assert.equal(markerStyle.opacity,'0.4','page icon is 40 percent opaque');
+   assert.equal(markerStyle.opacity,'1','page icon has opaque yellow fill');
+   assert.equal(markerStyle.fill,'rgb(224, 173, 0)','page glyph interior is solid yellow');
    assert.equal(markerStyle.borderWidth,'0px','no circular border');
    assert.equal(markerStyle.borderRadius,'0px','no circular background shape');
    assert.equal(visual.hasText,'','no opaque Note label');
@@ -262,6 +263,29 @@ async function runSyncPolicyTests(){
    await page.locator('.studio-reader-note-actions button', {hasText:'Save'}).click();
    assert.equal(await page.evaluate(()=>window.pdfNotesState.notes['1'][0].text),'Edited saved instruction');
    await page.locator('.studio-reader-note-pin').first().click();
+   await page.locator('.studio-reader-note-content').getByText('Edited saved instruction').waitFor();
+   // Existing notes can be moved by tapping a new page location, preserving text.
+   await page.locator('.studio-reader-note-actions button', {hasText:'Move'}).click();
+   const pageSize=await page.locator('.studio-reader-overlay').boundingBox();
+   await page.locator('.studio-reader-overlay').click({position:{x:Math.floor(pageSize.width*.75),y:Math.floor(pageSize.height*.7)}});
+   const moved=await page.evaluate(()=>window.pdfNotesState.notes['1'][0]);
+   assert.ok(Math.abs(moved.x-.3)>.05,'note moved horizontally by page tap');
+   assert.ok(Math.abs(moved.y-.2)>.05,'note moved vertically by page tap');
+   assert.equal(moved.text,'Edited saved instruction','move preserves note text');
+   await page.locator('.studio-reader-note-pin').click();
+   await page.locator('.studio-reader-note-content').getByText('Edited saved instruction').waitFor();
+   // Move by dragging the note marker; note data saves with the new position.
+   await page.locator('.studio-reader-note-actions button', {hasText:'Move'}).click();
+   const dragStart=await page.locator('.studio-reader-note-pin').boundingBox();
+   const startX=dragStart.x+dragStart.width/2,startY=dragStart.y+dragStart.height/2;
+   await page.mouse.move(startX,startY);
+   await page.mouse.down();
+   await page.mouse.move(startX+55,startY+45,{steps:5});
+   await page.mouse.up();
+   const dragged=await page.evaluate(()=>window.pdfNotesState.notes['1'][0]);
+   assert.ok(Math.abs(dragged.x-moved.x)>.02,'drag moves note to a new x position');
+   assert.equal(dragged.text,'Edited saved instruction','drag preserves note text');
+   await page.locator('.studio-reader-note-pin').click();
    await page.locator('.studio-reader-note-content').getByText('Edited saved instruction').waitFor();
    page.once('dialog',dialog=>dialog.accept());
    await page.locator('.studio-reader-note-actions button', {hasText:'Delete'}).click();
