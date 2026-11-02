@@ -1,4 +1,4 @@
-// Dropbox App Folder integration, explicit user actions only. OAuth PKCE, no app secret.
+// Dropbox App Folder integration with automatic synchronization. OAuth PKCE, no app secret.
 const StudioDropbox=(()=>{
  const API='https://api.dropboxapi.com/2', CONTENT='https://content.dropboxapi.com/2';
  const ROOT='/studio-current.json', PREFIX='/backups/';
@@ -95,16 +95,13 @@ const StudioDropbox=(()=>{
   return new Uint8Array(await response.arrayBuffer());
  }
  async function backup(doc){const name=PREFIX+'backup-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+random().slice(0,8)+'.json';return upload(name,doc)}
- // Never silently replace remote or local data. Whole-snapshot conflict policy for prototype.
- async function synchronize(local,validate,ask){const localChecksum=await local.checksum();const meta=await metadata(ROOT);
-  if(!meta){if(!confirm('No Dropbox studio file exists. Upload this device’s current data as the first cloud copy?'))return 'cancelled';const doc=await local.export();const saved=await upload(ROOT,doc);revision=saved.rev;markSynced(localChecksum);await backup(doc);return 'uploaded';}
-  const remote=await download(ROOT);await validate(remote);const remoteChecksum=remote.checksum;
-  if(baseChecksum===null){const choice=prompt('Dropbox contains a Studio backup. Type DOWNLOAD to replace this device’s data, UPLOAD to replace the Dropbox copy, or CANCEL. Export a local backup first if needed.','CANCEL');if(choice==='DOWNLOAD'){await ask(remote.data);revision=meta.rev;markSynced(remoteChecksum);return 'downloaded'}if(choice==='UPLOAD'){const doc=await local.export();const saved=await upload(ROOT,doc,meta.rev);revision=saved.rev;markSynced(localChecksum);await backup(doc);return 'uploaded'}return 'cancelled'}
-  const localChanged=localChecksum!==baseChecksum,remoteChanged=remoteChecksum!==baseChecksum;
-  if(!localChanged&&!remoteChanged){revision=meta.rev;return 'already up to date'}
-  if(remoteChanged&&localChanged){const choice=prompt('Sync conflict: both devices changed data. Type DOWNLOAD to keep Dropbox, UPLOAD to keep this device, or CANCEL. Neither copy is overwritten automatically.','CANCEL');if(choice==='DOWNLOAD'){await ask(remote.data);revision=meta.rev;markSynced(remoteChecksum);return 'downloaded'}if(choice==='UPLOAD'){const doc=await local.export();await backup(remote);const saved=await upload(ROOT,doc,meta.rev);revision=saved.rev;markSynced(localChecksum);await backup(doc);return 'uploaded'}return 'conflict postponed'}
-  if(remoteChanged){await ask(remote.data);revision=meta.rev;markSynced(remoteChecksum);return 'downloaded'}
-  const doc=await local.export();const saved=await upload(ROOT,doc,meta.rev);revision=saved.rev;markSynced(localChecksum);await backup(doc);return 'uploaded';
+ // The newest actual data edit wins. Preserve the replaced snapshot as a Dropbox backup.
+ // Older releases lack dataChangedAt: on first migration prefer the established cloud copy
+ // rather than allowing navigation-only changes on a second device to overwrite it.
+ function dataEditTime(data){const t=Date.parse(data?.dataChangedAt||'');return Number.isFinite(t)?t:0}
+ async function synchronize(local,validate,apply){
+  // Manual Sync Now uses the same automatic policy. It cannot silently choose a different winner.
+  return synchronizeAutomatic(local,validate,apply);
  }
  async function synchronizeAutomatic(local,validate,apply){
   if(!connected())return 'not connected';
@@ -115,7 +112,7 @@ const StudioDropbox=(()=>{
    if(baseline)return 'needs attention: Dropbox copy missing';
    if(await local.isDemo())return 'waiting for actual project data';
    const doc=await local.export();
-   if(doc.checksum!==checksum)return 'local changed, retrying';
+   if(doc.checksum!==checksum||await local.checksum()!==checksum)return 'local changed, retrying';
    const saved=await upload(ROOT,doc);
    revision=saved.rev;markSynced(checksum);
    await backup(doc);
@@ -123,26 +120,33 @@ const StudioDropbox=(()=>{
   }
   const remote=await download(ROOT);
   await validate(remote);
-  const remoteChecksum=remote.checksum;
+  // Previous releases included the active project (a device preference) in the
+  // backup checksum. Compare only shared data for both current and old backups.
+  const remoteData=structuredClone(remote.data);
+  delete remoteData.active;
+  const remoteChecksum=await local.checksumOf(remoteData);
   if(await local.checksum()!==checksum)return 'local changed, retrying';
   if(checksum===remoteChecksum){revision=meta.rev;markSynced(checksum);return 'already up to date'}
-  if(!baseline){
-   if(!(await local.isDemo()))return 'needs attention: local and Dropbox data differ; neither was replaced';
-   await apply(remote.data,checksum);
-   revision=meta.rev;markSynced(remoteChecksum);
-   return 'downloaded';
+  const localDoc=await local.export();
+  if(localDoc.checksum!==checksum||await local.checksum()!==checksum)return 'local changed, retrying';
+  const localAt=dataEditTime(localDoc.data);
+  const remoteAt=dataEditTime(remote.data);
+  if(localAt>remoteAt){
+   // Keep the previous Dropbox version before replacing it.
+   await backup(remote);
+   if(await local.checksum()!==checksum)return 'local changed, retrying';
+   const saved=await upload(ROOT,localDoc,meta.rev);
+   revision=saved.rev;markSynced(checksum);
+   await backup(localDoc);
+   return 'uploaded';
   }
-  if(checksum!==baseline&&remoteChecksum!==baseline)return 'needs attention: both devices changed';
-  if(remoteChecksum!==baseline){
-   await apply(remote.data,checksum);
-   revision=meta.rev;markSynced(remoteChecksum);
-   return 'downloaded';
-  }
-  const doc=await local.export();
-  if(doc.checksum!==checksum)return 'local changed, retrying';
-  const saved=await upload(ROOT,doc,meta.rev);
-  revision=saved.rev;markSynced(checksum);
-  return 'uploaded';
+  // Cloud wins equal timestamps, including migration from old versions without
+  // a trustworthy data-edit timestamp. Preserve local records before replacing.
+  await backup(localDoc);
+  if(await local.checksum()!==checksum)return 'local changed, retrying';
+  await apply(remote.data,checksum);
+  revision=meta.rev;markSynced(remoteChecksum);
+  return 'downloaded';
  }
  async function restoreConnection(){
   if(!connected())return false;
