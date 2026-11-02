@@ -196,6 +196,69 @@ async function runSyncPolicyTests(){
    await navigate('Settings');
    assert.equal(await page.locator('#keepScreenAwake').isChecked(),true,'screen wake preference persists');
    await page.locator('#keepScreenAwake').uncheck();
+
+   // Run PDF note UI regression against a local fake PDF renderer. No Dropbox account needed.
+   await page.route('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs',async route=>{
+    await route.fulfill({status:200,contentType:'text/javascript',headers:{'Access-Control-Allow-Origin':'*'},body:
+      'export const GlobalWorkerOptions={};export const getDocument=()=>({promise:Promise.resolve({numPages:2,getPage:async()=>({rotate:0,getViewport:({scale})=>({width:300*scale,height:400*scale}),render:()=>({promise:Promise.resolve()})}),destroy:async()=>{}})});'
+    });
+   });
+   await page.evaluate(async()=>{
+    StudioDropbox.connected=()=>true;
+    const objects=[
+     '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+     '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+     '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << >> /Contents 4 0 R >>\nendobj\n',
+     '4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n'
+    ];
+    let pdfData='%PDF-1.4\n';const offsets=[0];
+    for(const obj of objects){offsets.push(pdfData.length);pdfData+=obj}
+    const xrefOffset=pdfData.length;
+    pdfData+='xref\n0 5\n0000000000 65535 f \n';
+    pdfData+=offsets.slice(1).map(x=>String(x).padStart(10,'0')+' 00000 n \n').join('');
+    pdfData+='trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n'+xrefOffset+'\n%%EOF\n';
+    StudioDropbox.downloadSharedLink=async()=>new TextEncoder().encode(pdfData);
+    const mod=await import('./pdf-reader.js');
+    const initial={page:1,mode:'pan',notes:{'1':[{x:.3,y:.2,text:'Original saved instruction'}]}};
+    window.pdfNotesState=initial;
+    window.testPdfReader=await mod.openPdfReader({
+      url:'https://www.dropbox.com/fake.pdf',reading:initial,
+      onChange:x=>{window.pdfNotesState=x},onCounter:{get:()=>({section:'',count:0,rows:0})}
+    });
+   });
+   await page.waitForFunction(()=>{const x=document.querySelector('.studio-reader-status')?.textContent||'';return x.includes('Ready')||x.startsWith('Cannot open')||x.startsWith('Could not render')},{timeout:15000});
+   const pdfStatus=await page.locator('.studio-reader-status').innerText();
+   assert.match(pdfStatus,/Ready/,'PDF initialization: '+pdfStatus);
+   const pin=page.locator('.studio-reader-note-pin');
+   assert.equal(await pin.count(),1,'existing note pin remains visible');
+   assert.equal(await pin.first().innerText(),'','note pin uses icon rather than word');
+   assert.equal(await pin.first().locator('svg').count(),1,'note icon renders');
+   await pin.first().click();
+   await page.locator('.studio-reader-note-content').getByText('Original saved instruction').waitFor();
+   assert.equal(await page.locator('.studio-reader-note-dialog').count(),1,'saved note opens directly');
+   await page.locator('.studio-reader-note-actions button', {hasText:'Close'}).click();
+   assert.equal(await page.locator('.studio-reader-note-dialog').count(),0,'close dismisses without edit');
+   await pin.first().click();
+   await page.locator('.studio-reader-note-actions button', {hasText:'Edit'}).click();
+   await page.locator('.studio-reader-note-editor').fill('Edited saved instruction');
+   await page.locator('.studio-reader-note-actions button', {hasText:'Cancel'}).click();
+   await page.locator('.studio-reader-note-content').getByText('Original saved instruction').waitFor();
+   await page.locator('.studio-reader-note-actions button', {hasText:'Edit'}).click();
+   await page.locator('.studio-reader-note-editor').fill('Edited saved instruction');
+   await page.locator('.studio-reader-note-actions button', {hasText:'Save'}).click();
+   assert.equal(await page.evaluate(()=>window.pdfNotesState.notes['1'][0].text),'Edited saved instruction');
+   await page.locator('.studio-reader-note-pin').first().click();
+   await page.locator('.studio-reader-note-content').getByText('Edited saved instruction').waitFor();
+   page.once('dialog',dialog=>dialog.accept());
+   await page.locator('.studio-reader-note-actions button', {hasText:'Delete'}).click();
+   assert.equal(await page.evaluate(()=>window.pdfNotesState.notes['1'].length),0,'delete removes note');
+   await page.locator('.studio-reader-toolbar button', {hasText:'Add note'}).click();
+   await page.locator('.studio-reader-overlay').click({position:{x:240,y:240}});
+   await page.locator('.studio-reader-note-editor').fill('New separate note');
+   await page.locator('.studio-reader-note-actions button', {hasText:'Save'}).click();
+   assert.equal(await page.evaluate(()=>window.pdfNotesState.notes['1'][0].text),'New separate note');
+   await page.evaluate(()=>window.testPdfReader.close());
+   console.log('PASS PDF note UI '+engine+' '+device);
    assert.deepEqual(errors,[],'no uncaught errors');
    console.log('PASS integration '+engine+' '+device);
   }catch(e){failures.push(engine+' '+device+': '+e.stack);console.error('FAIL integration '+engine+' '+device,e)}
