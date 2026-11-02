@@ -45,6 +45,7 @@ async function runSyncPolicyTests(){
   return {
    get data(){return data},
    edit:(count,time)=>{data.projects[0].sections[0].count=count;data.updated=time;data.dataChangedAt=time},
+   editPdfNote:(note,time)=>{data.projects[0].pdfReading={page:1,mode:'pan',notes:{'1':[note]}};data.updated=time;data.dataChangedAt=time},
    select:name=>{data.active=name},
    sync:()=>dropbox.synchronizeAutomatic(local,async remote=>{
     assert.equal(remote.checksum,hash(canonical(remote.data)),'backup checksum valid');
@@ -80,7 +81,18 @@ async function runSyncPolicyTests(){
  const oldPhone=device(legacy);
  assert.equal(await oldPhone.sync(),'downloaded','legacy device defers to established cloud records');
  assert.equal(oldPhone.data.projects[0].sections[0].count,9);
- console.log('PASS automatic sync: last actual edit wins, both directions, legacy safety, backups');
+ const t6='2026-11-02T19:05:00.000Z',t7='2026-11-02T19:06:00.000Z';
+ const ipadNote={x:.35,y:.27,text:'Sleeve instruction from iPad'};
+ ipad.editPdfNote(ipadNote,t6);
+ assert.equal(await ipad.sync(),'uploaded','iPad PDF note edit uploads with data edit timestamp');
+ assert.equal(await iphone.sync(),'downloaded','iPhone downloads note created on iPad');
+ assert.deepEqual(iphone.data.projects[0].pdfReading.notes['1'][0],ipadNote,'iPhone receives same note text and coordinates');
+ ipad.editPdfNote({...ipadNote,x:.7,y:.55},t7);
+ assert.equal(await ipad.sync(),'uploaded','iPad moved note uploads');
+ assert.equal(await iphone.sync(),'downloaded','iPhone receives note position change');
+ assert.equal(iphone.data.projects[0].pdfReading.notes['1'][0].x,.7,'note x position synced');
+ assert.equal(iphone.data.projects[0].pdfReading.notes['1'][0].y,.55,'note y position synced');
+ console.log('PASS automatic sync: last actual edit wins, both directions, legacy safety, backups, iPad note create and move to iPhone');
 }
 
 (async()=>{
@@ -304,6 +316,14 @@ async function runSyncPolicyTests(){
    await page.locator('.studio-reader-note-editor').fill('New separate note');
    await page.locator('.studio-reader-note-actions button', {hasText:'Save'}).click();
    assert.equal(await page.evaluate(()=>window.pdfNotesState.notes['1'][0].text),'New separate note');
+   // A PDF already open on iPhone must reflect newly downloaded Dropbox annotations.
+   await page.evaluate(()=>window.testPdfReader.refreshReading({
+    page:1,mode:'pan',notes:{'1':[{x:.62,y:.66,text:'Remote note from iPad'}]}
+   }));
+   await page.locator('.studio-reader-note-pin').click();
+   await page.locator('.studio-reader-note-content').getByText('Remote note from iPad').waitFor();
+   await page.locator('.studio-reader-note-actions button', {hasText:'Close'}).click();
+   assert.equal(await page.evaluate(()=>window.pdfNotesState.notes['1'][0].text),'New separate note','refresh does not overwrite remote data by saving old local state');
    await page.evaluate(()=>window.testPdfReader.close());
    console.log('PASS PDF note UI '+engine+' '+device);
    assert.deepEqual(errors,[],'no uncaught errors');

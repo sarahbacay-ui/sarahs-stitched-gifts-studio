@@ -11,6 +11,7 @@ let patternDeleteSelection=new Set(),patternDeleteScope='';
 let layoutEdit=false,dragWidget=null;
 // Embedded PDF reader is retained across dashboard redraws, including row-counter updates.
 let inlinePdfReader=null,inlinePdfProject=null,inlinePdfStarting=false;
+let fullscreenPdfReader=null,fullscreenPdfProject=null;
 let giftMonth=new Date().getMonth(),giftYear=new Date().getFullYear(),selectedGiftDay=null;
 const WIDGET_DEFAULT=['project-selector','counter-card','pattern-card','video-card'];
 const layoutKey='sarah-studio-dashboard-order-v3.8';
@@ -34,6 +35,23 @@ function normalizedProject(p){finishingTasks(p);if(p.status==='In progress')p.st
 function prepareState(x){if(!x||!Array.isArray(x.projects))throw Error('Invalid project data');for(const p of x.projects){if(!Array.isArray(p.sections)||!Array.isArray(p.versions))throw Error('Invalid project sections or versions');normalizedProject(p);}return x;}
 
 function load(){try{const x=JSON.parse(localStorage.getItem(KEY));return x&&Array.isArray(x.projects)?x:structuredClone(starter)}catch{return structuredClone(starter)}}
+// Resolve the project at save time: a Dropbox download can replace the whole state object.
+function savePdfReading(projectId,reading){
+ const current=state.projects.find(project=>project.id===projectId);
+ if(!current)return;
+ if(JSON.stringify(current.pdfReading||{})===JSON.stringify(reading))return;
+ current.pdfReading=reading;markDataChange();persist();
+}
+function refreshOpenPdfReaders(){
+ if(inlinePdfReader){
+   const project=state.projects.find(p=>p.id===inlinePdfProject);
+   if(project)inlinePdfReader.refreshReading?.(project.pdfReading||{});
+ }
+ if(fullscreenPdfReader){
+   const project=state.projects.find(p=>p.id===fullscreenPdfProject);
+   if(project)fullscreenPdfReader.refreshReading?.(project.pdfReading||{});
+ }
+}
 function markDataChange(){const previous=Date.parse(state.dataChangedAt||'')||0;const at=new Date(Math.max(Date.now(),previous+1)).toISOString();state.updated=at;state.dataChangedAt=at;}
 function save(dataChanged=true){if(dataChanged){versionSnapshot(active());markDataChange()}persist();render()}
 function syncCanonical(data){const x=prepareState(structuredClone(data));delete x.active;return x}
@@ -121,13 +139,13 @@ function action(a){if(a==='mobileMore'){mobileMoreOpen=!mobileMoreOpen;render();
  if(inlinePdfStarting)return;
  const mount=document.querySelector('#homePdfReaderMount');if(!mount)return;
  inlinePdfStarting=true;
- import('./pdf-reader.js?v=53').then(m=>{
+ import('./pdf-reader.js?v=54').then(m=>{
    if(page!=='Home'||active()?.id!==p.id){inlinePdfStarting=false;return;}
    return m.openPdfReader({
      mount,url:p.dropboxPdfUrl,reading:p.pdfReading||{},
      onMount:instance=>{inlinePdfReader=instance;inlinePdfProject=p.id;inlinePdfStarting=false;},
      onClose:()=>{if(inlinePdfProject===p.id){inlinePdfReader=null;inlinePdfProject=null;}if(page==='Home'&&active()?.id===p.id)render();},
-     onChange:reading=>{p.pdfReading=reading;markDataChange();persist();},
+     onChange:reading=>savePdfReading(p.id,reading),
      onCounter:{
        get:()=>{const current=sec(p);return {section:current?.name||'No active section',count:current?.count||0,rows:current?.rows||0};},
        change:delta=>{const current=sec(p);if(!current)return;const old=current.count;current.count=Math.max(0,Math.min(999999,current.count+delta));p.history??=[];p.history.push({at:new Date().toISOString(),section:current.id,from:old,to:current.count});versionSnapshot(p);markDataChange();persist();render();}
@@ -136,11 +154,12 @@ function action(a){if(a==='mobileMore'){mobileMoreOpen=!mobileMoreOpen;render();
  }).catch(err=>{inlinePdfStarting=false;alert('Could not show PDF in Home: '+err.message);});
 }else if(a==='openPdfReader'){
  if(!p?.dropboxPdfUrl){alert('Add a Dropbox PDF link to this project first.');return}
- import('./pdf-reader.js?v=53').then(m=>m.openPdfReader({
+ import('./pdf-reader.js?v=54').then(m=>m.openPdfReader({
    url:p.dropboxPdfUrl,
    reading:p.pdfReading||{},
-   onClose:()=>render(),
-   onChange:reading=>{p.pdfReading=reading;state.updated=new Date().toISOString();persist()},
+   onMount:instance=>{fullscreenPdfReader=instance;fullscreenPdfProject=p.id},
+   onClose:()=>{fullscreenPdfReader=null;fullscreenPdfProject=null;render()},
+   onChange:reading=>savePdfReading(p.id,reading),
    onCounter:{
      get:()=>{const current=sec(p);return {section:current?.name||'No active section',count:current?.count||0,rows:current?.rows||0}},
      change:delta=>{const current=sec(p);if(!current)return;const previous=current.count;current.count=Math.max(0,Math.min(999999,current.count+delta));p.history??=[];p.history.push({at:new Date().toISOString(),section:current.id,from:previous,to:current.count});versionSnapshot(p);state.updated=new Date().toISOString();persist()}
@@ -218,7 +237,7 @@ async function autoSyncDropbox(){
    const incoming=prepareState(structuredClone(remote));
    const selected=state.active;
    incoming.active=incoming.projects.some(p=>p.id===selected&&!p.archived)?selected:incoming.projects.find(p=>!p.archived)?.id;
-   await StudioDB.put(incoming);state=incoming;render();
+   await StudioDB.put(incoming);state=incoming;refreshOpenPdfReaders();render();
   });
   autoSyncStatus=result;
   if(['uploaded','downloaded','already up to date'].includes(result))localStorage.setItem('studio-last-auto-sync',new Date().toISOString());
@@ -237,7 +256,7 @@ async function syncDropbox(){
   const incoming=prepareState(structuredClone(remote));
   const selected=state.active;
   incoming.active=incoming.projects.some(p=>p.id===selected&&!p.archived)?selected:incoming.projects.find(p=>!p.archived)?.id;
-  await StudioDB.put(incoming);state=incoming;page='Home';render();
+  await StudioDB.put(incoming);state=incoming;refreshOpenPdfReaders();page='Home';render();
  });
  autoSyncStatus=result;
  if(['uploaded','downloaded','already up to date'].includes(result))localStorage.setItem('studio-last-auto-sync',new Date().toISOString());
