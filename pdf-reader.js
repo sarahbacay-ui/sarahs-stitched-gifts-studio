@@ -303,8 +303,19 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    try{status.textContent='Opening PDF from Files…';await load(await file.arrayBuffer())}
    catch(e){status.textContent='Could not open selected PDF: '+e.message}
  };
+ // Refresh an open reader from Dropbox without saving old data back to the project.
+ const refreshReading=reading=>{
+   if(closed)return;
+   const incoming=normalizeReaderState(reading);
+   const oldPage=state.page,oldZoom=state.zoom,oldRotation=state.rotation;
+   Object.assign(state,incoming);
+   history.length=0;
+   closeNoteDialog();movingNote=null;cancelMove.hidden=true;
+   if(pdf&&(oldPage!==state.page||oldZoom!==state.zoom||oldRotation!==state.rotation))paint();
+   else draw();
+ };
  countRefresh();
- onMount?.({root:outer,close:closeReader,refreshCounter:countRefresh});
+ onMount?.({root:outer,close:closeReader,refreshCounter:countRefresh,refreshReading});
  try{
    if(!url)throw Error('No saved Dropbox PDF link.');
    const db=typeof StudioDropbox!=='undefined'?StudioDropbox:globalThis.StudioDropbox;
@@ -314,5 +325,5 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    status.textContent='Cannot open from Dropbox: '+e.message;
    fallback.hidden=false;area.hidden=true;toolbar.hidden=true;tools.hidden=true;
  }
- return {close:closeReader};
+ return {close:closeReader,refreshReading};
 }
