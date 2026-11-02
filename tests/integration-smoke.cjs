@@ -214,7 +214,7 @@ async function runSyncPolicyTests(){
       onChange:x=>{window.pdfNotesState=x},onCounter:{get:()=>({section:'',count:0,rows:0})}
     });
    });
-   await page.locator('.studio-reader-status').getByText(/Ready/).waitFor({timeout:15000});
+   await page.locator('.studio-reader-status').filter({hasText:'Ready'}).waitFor({timeout:15000});
    const pin=page.locator('.studio-reader-note-pin');
    assert.equal(await pin.count(),1,'existing note pin remains visible');
    assert.equal(await pin.first().innerText(),'','note pin uses icon rather than word');
