@@ -233,3 +233,8 @@
 }
 .studio-reader-note-pin svg{opacity:.4;filter:none;fill:none}
 .studio-reader-note-pin:not(:focus-visible){outline:none}
+
+/* Opaque yellow page icon. No teal outline, circular backing or translucent fill. */
+.studio-reader-note-pin,.studio-reader-note-pin:hover,.studio-reader-note-pin:focus-visible{background:transparent;border:0;border-radius:0;box-shadow:none;color:#e0ad00;padding:0}
+.studio-reader-note-pin svg{opacity:1;fill:#e0ad00;stroke:none;filter:none;width:18px;height:18px}
+.studio-reader-note-pin:focus-visible{outline:2px solid #c18a00;outline-offset:1px}
