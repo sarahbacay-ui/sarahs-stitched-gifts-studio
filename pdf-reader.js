@@ -49,7 +49,9 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  fallback.append(element('p','','Dropbox could not open the PDF. Select the same PDF from Files instead.'),fallbackPick);
  dialog.append(top,status,toolbar,tools,area,fallback);outer.append(dialog);(mount||document.body).append(outer);
  const save=()=>onChange(structuredClone(state));
- let noteDialog=null;
+ let noteDialog=null,movingNote=null;
+ const positionOnPage=e=>{const r=overlay.getBoundingClientRect();return {x:clamp((e.clientX-r.left)/r.width,0,1),y:clamp((e.clientY-r.top)/r.height,0,1)}};
+ const finishMovingNote=(position)=>{if(!movingNote)return;const {note,key}=movingNote;checkpoint();note.x=position.x;note.y=position.y;movingNote=null;state.mode='pan';status.textContent='Note position saved.';save();draw();};
  const closeNoteDialog=()=>{if(noteDialog){noteDialog.remove();noteDialog=null}};
  const showNoteDialog=(note,pageKey,position=null)=>{
    closeNoteDialog();
@@ -67,19 +69,21 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    const actions=element('div','studio-reader-note-actions');
    const edit=element('button','button','Edit');
    const remove=element('button','button secondary studio-reader-note-delete','Delete');
+   const move=element('button','button secondary','Move');
    const commit=element('button','button','Save');
    const cancel=element('button','button secondary',creating?'Cancel':'Close');
-   for(const button of [edit,remove,commit,cancel])button.type='button';
+   for(const button of [edit,remove,move,commit,cancel])button.type='button';
    panel.append(heading,content,editor,actions);
    backdrop.append(panel);outer.append(backdrop);noteDialog=backdrop;
    const update=()=>{
      content.hidden=editing;editor.hidden=!editing;edit.hidden=editing||creating;
-     remove.hidden=editing||creating;commit.hidden=!editing;
+     remove.hidden=editing||creating;move.hidden=editing||creating;commit.hidden=!editing;
      cancel.textContent=editing?'Cancel':'Close';
-     actions.replaceChildren(...(editing?[commit,cancel]:[edit,remove,cancel]));
+     actions.replaceChildren(...(editing?[commit,cancel]:[edit,move,remove,cancel]));
      if(editing){editor.value=note?.text||'';editor.focus()}else{content.textContent=note.text;edit.focus()}
    };
    edit.onclick=()=>{editing=true;update()};
+   move.onclick=()=>{closeNoteDialog();movingNote={note,key:pageKey};state.mode='pan';status.textContent='Move note: drag its icon or tap a new position on the page.';draw()};
    cancel.onclick=()=>{if(editing&&!creating){editing=false;update()}else closeNoteDialog()};
    commit.onclick=()=>{
      const value=editor.value.trim();
@@ -137,11 +141,33 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    for(const note of state.notes[key]||[]){
      const pin=element('button','studio-reader-note-pin');
      pin.type='button';pin.title='View note';pin.setAttribute('aria-label','View note: '+note.text);
-     pin.innerHTML='<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M15 3v5h5M8 12h8M8 16h6"/></svg>';
+     pin.innerHTML='<svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden="true"><path d="M5 2.5h10l5 5V21a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z"/><path d="M15 2.5V8h5" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="1.2"/><path d="M8 12h8M8 15h8M8 18h5" fill="none" stroke="rgba(255,255,255,.85)" stroke-width="1.2" stroke-linecap="round"/></svg>';
      Object.assign(pin.style,{position:'absolute',left:note.x*100+'%',top:note.y*100+'%',zIndex:'3',pointerEvents:'auto'});
-     // Prevent note-placement gestures on the page from intercepting existing-note taps.
-     for(const eventName of ['pointerdown','pointerup','pointercancel'])pin.addEventListener(eventName,e=>e.stopPropagation());
-     pin.onclick=e=>{e.preventDefault();e.stopPropagation();pointer=null;showNoteDialog(note,key)};
+     let dragId=null,dragged=false,suppressClick=false;
+     pin.addEventListener('pointerdown',e=>{
+       e.stopPropagation();
+       if(movingNote?.note!==note)return;
+       e.preventDefault();dragId=e.pointerId;dragged=false;pin.setPointerCapture(e.pointerId);
+     });
+     pin.addEventListener('pointermove',e=>{
+       if(dragId!==e.pointerId)return;e.preventDefault();e.stopPropagation();
+       const position=positionOnPage(e);dragged=true;
+       pin.style.left=position.x*100+'%';pin.style.top=position.y*100+'%';
+     });
+     pin.addEventListener('pointerup',e=>{
+       e.stopPropagation();if(dragId!==e.pointerId)return;
+       e.preventDefault();dragId=null;suppressClick=true;
+       const position=positionOnPage(e);
+       if(dragged)finishMovingNote(position);
+       else {status.textContent='Tap a new position on the page to move this note.';}
+     });
+     pin.addEventListener('pointercancel',e=>{e.stopPropagation();dragId=null});
+     pin.onclick=e=>{
+       e.preventDefault();e.stopPropagation();pointer=null;
+       if(suppressClick){suppressClick=false;return}
+       if(movingNote)return;
+       showNoteDialog(note,key);
+     };
      overlay.append(pin);
    }
    const line=element('div','studio-reader-ruler','Drag ruler to mark your place');
@@ -181,13 +207,13 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    highlight.setAttribute('aria-pressed',String(state.mode==='highlight'));
    drawTool.setAttribute('aria-pressed',String(state.mode==='draw'));noteTool.setAttribute('aria-pressed',String(state.mode==='note'));eraseTool.setAttribute('aria-pressed',String(state.mode==='erase'));
    // Native touch scrolling works in Pan mode; annotation gestures stay opt-in.
-   overlay.style.pointerEvents=state.mode==='pan'?'none':'auto';
-   overlay.style.touchAction=state.mode==='pan'?'auto':'none';
+   overlay.style.pointerEvents=movingNote?'auto':state.mode==='pan'?'none':'auto';
+   overlay.style.touchAction=movingNote?'none':state.mode==='pan'?'auto':'none';
  };
  const closeReader=()=>{
    if(closed)return;
    clearTimeout(scrollSaveTimer);captureScroll();save();
-   closed=true;serial++;closeNoteDialog();
+   closed=true;serial++;movingNote=null;closeNoteDialog();
    document.removeEventListener('visibilitychange',onVisibility);
    window.removeEventListener('pagehide',onPageHide);
    outer.remove();onClose?.();
@@ -229,14 +255,17 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  let pointer=null;
  const locate=e=>{const rect=overlay.getBoundingClientRect();return {x:clamp((e.clientX-rect.left)/rect.width,0,1),y:clamp((e.clientY-rect.top)/rect.height,0,1)}};
  overlay.onpointerdown=e=>{
-   if(rendering||!pdf||state.mode==='pan')return;
+   if(rendering||!pdf)return;
+   if(movingNote){e.preventDefault();overlay.setPointerCapture(e.pointerId);pointer={id:e.pointerId,mode:'moving',page:state.page};return}
+   if(state.mode==='pan')return;
    e.preventDefault();overlay.setPointerCapture(e.pointerId);
    const at=locate(e);pointer={id:e.pointerId,mode:state.mode,page:state.page,begin:at,end:at,points:[at]};
    if(state.mode==='ruler'){state.ruler[String(state.page)]=at.y;save();draw()}
  };
- overlay.onpointermove=e=>{if(!pointer||pointer.id!==e.pointerId)return;pointer.end=locate(e);if(pointer.mode==='draw'){pointer.points.push(pointer.end);draw()}if(state.mode==='ruler'){state.ruler[String(state.page)]=pointer.end.y;draw()}};
+ overlay.onpointermove=e=>{if(!pointer||pointer.id!==e.pointerId)return;if(pointer.mode==='moving')return;pointer.end=locate(e);if(pointer.mode==='draw'){pointer.points.push(pointer.end);draw()}if(state.mode==='ruler'){state.ruler[String(state.page)]=pointer.end.y;draw()}};
  overlay.onpointerup=e=>{
    if(!pointer||pointer.id!==e.pointerId)return;
+   if(pointer.mode==='moving'){pointer=null;finishMovingNote(positionOnPage(e));return}
    const a=pointer.begin,b=locate(e),pointerPoints=pointer.points;pointer=null;
    if(state.mode==='ruler')state.ruler[String(state.page)]=b.y;
    else if(state.mode==='highlight'){checkpoint();if(!insertMark(state,state.page,{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)}))history.pop();}
@@ -247,6 +276,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  };
  overlay.onpointercancel=e=>{
    if(pointer&&pointer.id===e.pointerId){
+     if(pointer.mode==='moving'){pointer=null;draw();return}
      if(state.mode==='draw'&&pointer.points.length>1){checkpoint();(state.strokes[String(state.page)]??=[]).push({points:pointer.points});}
      if(state.mode==='ruler')state.ruler[String(state.page)]=pointer.end.y;
      pointer=null;save();
