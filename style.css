@@ -238,3 +238,10 @@
 .studio-reader-note-pin,.studio-reader-note-pin:hover,.studio-reader-note-pin:focus-visible{background:transparent;border:0;border-radius:0;box-shadow:none;color:#e0ad00;padding:0}
 .studio-reader-note-pin svg{opacity:1;fill:#e0ad00;stroke:none;filter:none;width:18px;height:18px}
 .studio-reader-note-pin:focus-visible{outline:2px solid #c18a00;outline-offset:1px}
+
+/* Small yellow-filled page, teal document outline, no circle. */
+.studio-reader-note-pin,.studio-reader-note-pin:hover{background:transparent!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding:0}
+.studio-reader-note-pin svg{width:18px;height:18px;opacity:1;fill:none;stroke:none;filter:none}
+.studio-reader-note-pin svg .studio-note-page{fill:#e0ad00;stroke:#117d7c;stroke-width:1.8}
+.studio-reader-note-pin.studio-reader-note-moving{cursor:grab;touch-action:none!important;outline:2px dashed #117d7c;outline-offset:0;border-radius:4px!important}
+.studio-reader-note-pin.studio-reader-note-moving:active{cursor:grabbing}
