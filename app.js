@@ -121,7 +121,7 @@ function action(a){if(a==='mobileMore'){mobileMoreOpen=!mobileMoreOpen;render();
  if(inlinePdfStarting)return;
  const mount=document.querySelector('#homePdfReaderMount');if(!mount)return;
  inlinePdfStarting=true;
- import('./pdf-reader.js?v=52').then(m=>{
+ import('./pdf-reader.js?v=53').then(m=>{
    if(page!=='Home'||active()?.id!==p.id){inlinePdfStarting=false;return;}
    return m.openPdfReader({
      mount,url:p.dropboxPdfUrl,reading:p.pdfReading||{},
@@ -136,7 +136,7 @@ function action(a){if(a==='mobileMore'){mobileMoreOpen=!mobileMoreOpen;render();
  }).catch(err=>{inlinePdfStarting=false;alert('Could not show PDF in Home: '+err.message);});
 }else if(a==='openPdfReader'){
  if(!p?.dropboxPdfUrl){alert('Add a Dropbox PDF link to this project first.');return}
- import('./pdf-reader.js?v=52').then(m=>m.openPdfReader({
+ import('./pdf-reader.js?v=53').then(m=>m.openPdfReader({
    url:p.dropboxPdfUrl,
    reading:p.pdfReading||{},
    onClose:()=>render(),
