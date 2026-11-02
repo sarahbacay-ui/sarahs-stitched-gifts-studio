@@ -256,7 +256,7 @@ async function syncDropbox(){
   const incoming=prepareState(structuredClone(remote));
   const selected=state.active;
   incoming.active=incoming.projects.some(p=>p.id===selected&&!p.archived)?selected:incoming.projects.find(p=>!p.archived)?.id;
-  await StudioDB.put(incoming);state=incoming;page='Home';render();
+  await StudioDB.put(incoming);state=incoming;refreshOpenPdfReaders();page='Home';render();
  });
  autoSyncStatus=result;
  if(['uploaded','downloaded','already up to date'].includes(result))localStorage.setItem('studio-last-auto-sync',new Date().toISOString());
