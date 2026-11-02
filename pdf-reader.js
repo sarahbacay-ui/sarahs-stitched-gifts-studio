@@ -49,6 +49,58 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  fallback.append(element('p','','Dropbox could not open the PDF. Select the same PDF from Files instead.'),fallbackPick);
  dialog.append(top,status,toolbar,tools,area,fallback);outer.append(dialog);(mount||document.body).append(outer);
  const save=()=>onChange(structuredClone(state));
+ let noteDialog=null;
+ const closeNoteDialog=()=>{if(noteDialog){noteDialog.remove();noteDialog=null}};
+ const showNoteDialog=(note,pageKey,position=null)=>{
+   closeNoteDialog();
+   const creating=!note;
+   let editing=creating;
+   const backdrop=element('div','studio-reader-note-dialog');
+   backdrop.setAttribute('role','presentation');
+   const panel=element('section','studio-reader-note-panel');
+   panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');
+   panel.setAttribute('aria-label',creating?'Add note':'Saved note');
+   const heading=element('h3','',creating?'Add note':'Note');
+   const content=element('p','studio-reader-note-content');
+   const editor=element('textarea','studio-reader-note-editor');
+   editor.rows=4;editor.setAttribute('aria-label','Note text');editor.placeholder='Enter your note';
+   const actions=element('div','studio-reader-note-actions');
+   const edit=element('button','button','Edit');
+   const remove=element('button','button secondary studio-reader-note-delete','Delete');
+   const commit=element('button','button','Save');
+   const cancel=element('button','button secondary',creating?'Cancel':'Close');
+   for(const button of [edit,remove,commit,cancel])button.type='button';
+   panel.append(heading,content,editor,actions);
+   backdrop.append(panel);outer.append(backdrop);noteDialog=backdrop;
+   const update=()=>{
+     content.hidden=editing;editor.hidden=!editing;edit.hidden=editing||creating;
+     remove.hidden=editing||creating;commit.hidden=!editing;
+     cancel.textContent=editing?'Cancel':'Close';
+     actions.replaceChildren(...(editing?[commit,cancel]:[edit,remove,cancel]));
+     if(editing){editor.value=note?.text||'';editor.focus()}else{content.textContent=note.text;edit.focus()}
+   };
+   edit.onclick=()=>{editing=true;update()};
+   cancel.onclick=()=>{if(editing&&!creating){editing=false;update()}else closeNoteDialog()};
+   commit.onclick=()=>{
+     const value=editor.value.trim();
+     if(!value){editor.setCustomValidity('Enter note text before saving.');editor.reportValidity();return}
+     editor.setCustomValidity('');
+     checkpoint();
+     if(creating)(state.notes[pageKey]??=[]).push({x:position.x,y:position.y,text:value});
+     else note.text=value;
+     closeNoteDialog();save();draw();
+   };
+   editor.addEventListener('input',()=>editor.setCustomValidity(''));
+   remove.onclick=()=>{
+     if(!confirm('Delete this note? This action can be undone with Undo annotation.'))return;
+     checkpoint();state.notes[pageKey]=state.notes[pageKey].filter(n=>n!==note);
+     closeNoteDialog();save();draw();
+   };
+   backdrop.onclick=e=>{if(e.target===backdrop)closeNoteDialog()};
+   backdrop.onkeydown=e=>{if(e.key==='Escape'){e.stopPropagation();closeNoteDialog()}};
+   update();
+ };
+
  let scrollSaveTimer=null;
  const captureScroll=()=>{if(!pdf||rendering||viewport.scrollHeight<=viewport.clientHeight)return;state.scrollY=clamp(viewport.scrollTop/(viewport.scrollHeight-viewport.clientHeight),0,1);};
  viewport.addEventListener('scroll',()=>{
@@ -82,7 +134,16 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 1000 1000');svg.setAttribute('preserveAspectRatio','none');Object.assign(svg.style,{position:'absolute',inset:'0',width:'100%',height:'100%',pointerEvents:'none'});
    const preview=pointer&&pointer.mode==='draw'&&pointer.page===state.page?pointer.points:null;
    for(const stroke of [...strokes,...(preview?[{points:preview}]:[])]){const path=document.createElementNS('http://www.w3.org/2000/svg','polyline');path.setAttribute('points',(stroke.points||[]).map(p=>`${p.x*1000},${p.y*1000}`).join(' '));path.setAttribute('fill','none');path.setAttribute('stroke','#b34837');path.setAttribute('stroke-width','3');path.setAttribute('stroke-linecap','round');path.setAttribute('stroke-linejoin','round');svg.append(path)}overlay.append(svg);
-   for(const note of state.notes[key]||[]){const pin=element('button','studio-reader-note-pin','Note');pin.type='button';pin.title=note.text;pin.setAttribute('aria-label','Edit note: '+note.text);Object.assign(pin.style,{position:'absolute',left:note.x*100+'%',top:note.y*100+'%',zIndex:'3',pointerEvents:'auto'});pin.onclick=e=>{e.stopPropagation();if(state.mode==='erase'){checkpoint();state.notes[key]=state.notes[key].filter(n=>n!==note);save();draw();return}const value=prompt('Edit note (leave blank to delete)',note.text);if(value===null)return;checkpoint();if(value.trim())note.text=value.trim();else state.notes[key]=state.notes[key].filter(n=>n!==note);save();draw()};overlay.append(pin)}
+   for(const note of state.notes[key]||[]){
+     const pin=element('button','studio-reader-note-pin');
+     pin.type='button';pin.title='View note';pin.setAttribute('aria-label','View note: '+note.text);
+     pin.innerHTML='<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M15 3v5h5M8 12h8M8 16h6"/></svg>';
+     Object.assign(pin.style,{position:'absolute',left:note.x*100+'%',top:note.y*100+'%',zIndex:'3',pointerEvents:'auto'});
+     // Prevent note-placement gestures on the page from intercepting existing-note taps.
+     for(const eventName of ['pointerdown','pointerup','pointercancel'])pin.addEventListener(eventName,e=>e.stopPropagation());
+     pin.onclick=e=>{e.preventDefault();e.stopPropagation();showNoteDialog(note,key)};
+     overlay.append(pin);
+   }
    const line=element('div','studio-reader-ruler','Drag ruler to mark your place');
    line.style.top=clamp(Number(state.ruler[key]??.32),0,1)*100+'%';
    // The ruler remains draggable even when Pan / Scroll mode is selected.
@@ -126,7 +187,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
  const closeReader=()=>{
    if(closed)return;
    clearTimeout(scrollSaveTimer);captureScroll();save();
-   closed=true;serial++;
+   closed=true;serial++;closeNoteDialog();
    document.removeEventListener('visibilitychange',onVisibility);
    window.removeEventListener('pagehide',onPageHide);
    outer.remove();onClose?.();
@@ -180,7 +241,7 @@ export async function openPdfReader({url,reading,onChange,onClose,onCounter,moun
    if(state.mode==='ruler')state.ruler[String(state.page)]=b.y;
    else if(state.mode==='highlight'){checkpoint();if(!insertMark(state,state.page,{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)}))history.pop();}
    else if(state.mode==='draw'){checkpoint();(state.strokes[String(state.page)]??=[]).push({points:[...pointerPoints,b]});}
-   else if(state.mode==='note'){const value=prompt('Note or comment');if(value?.trim()){checkpoint();(state.notes[String(state.page)]??=[]).push({x:b.x,y:b.y,text:value.trim()});}}
+   else if(state.mode==='note'){showNoteDialog(null,String(state.page),b);draw();return;}
    else if(state.mode==='erase'){const key=String(state.page);const distance=(p)=>Math.hypot(p.x-b.x,p.y-b.y);const candidates=[...(state.marks[key]||[]).map((m,i)=>({kind:'marks',i,d:distance({x:m.x+m.w/2,y:m.y+m.h/2})})),...(state.strokes[key]||[]).map((m,i)=>({kind:'strokes',i,d:Math.min(...(m.points||[]).map(distance))})),...(state.notes[key]||[]).map((m,i)=>({kind:'notes',i,d:distance(m)}))].sort((x,y)=>x.d-y.d);if(candidates[0]?.d<.08){checkpoint();state[candidates[0].kind][key].splice(candidates[0].i,1);}}
    save();draw();
  };
