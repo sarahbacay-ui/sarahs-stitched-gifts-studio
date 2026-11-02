@@ -233,6 +233,12 @@ async function runSyncPolicyTests(){
    assert.equal(await pin.count(),1,'existing note pin remains visible');
    assert.equal(await pin.first().innerText(),'','note pin uses icon rather than word');
    assert.equal(await pin.first().locator('svg').count(),1,'note icon renders');
+   const visual=await pin.first().evaluate(el=>{const css=getComputedStyle(el),icon=getComputedStyle(el.querySelector('svg'));return {background:css.backgroundColor,width:parseInt(icon.width,10),hasText:el.textContent.trim(),transform:css.transform}});
+   assert.equal(visual.background,'rgba(0, 0, 0, 0)','note icon has transparent background');
+   assert.ok(visual.width<=20,'small note icon');
+   assert.equal(visual.hasText,'','no opaque Note label');
+   await page.evaluate(()=>{document.querySelector('.studio-reader-toolbar button[aria-pressed="false"]')?.focus()});
+   await page.locator('.studio-reader-toolbar button', {hasText:'Add note'}).click();
    await pin.first().click();
    await page.locator('.studio-reader-note-content').getByText('Original saved instruction').waitFor();
    assert.equal(await page.locator('.studio-reader-note-dialog').count(),1,'saved note opens directly');
