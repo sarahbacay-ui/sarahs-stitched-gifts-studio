@@ -266,7 +266,8 @@ async function runSyncPolicyTests(){
    await page.locator('.studio-reader-note-content').getByText('Edited saved instruction').waitFor();
    // Existing notes can be moved by tapping a new page location, preserving text.
    await page.locator('.studio-reader-note-actions button', {hasText:'Move'}).click();
-   await page.locator('.studio-reader-overlay').click({position:{x:175,y:165}});
+   const pageSize=await page.locator('.studio-reader-overlay').boundingBox();
+   await page.locator('.studio-reader-overlay').click({position:{x:Math.floor(pageSize.width*.75),y:Math.floor(pageSize.height*.7)}});
    const moved=await page.evaluate(()=>window.pdfNotesState.notes['1'][0]);
    assert.ok(Math.abs(moved.x-.3)>.05,'note moved horizontally by page tap');
    assert.ok(Math.abs(moved.y-.2)>.05,'note moved vertically by page tap');
