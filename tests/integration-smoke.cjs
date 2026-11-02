@@ -205,7 +205,19 @@ async function runSyncPolicyTests(){
    });
    await page.evaluate(async()=>{
     StudioDropbox.connected=()=>true;
-    StudioDropbox.downloadSharedLink=async()=>new Uint8Array([1]);
+    const objects=[
+     '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+     '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+     '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Resources << >> /Contents 4 0 R >>\nendobj\n',
+     '4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n'
+    ];
+    let pdfData='%PDF-1.4\n';const offsets=[0];
+    for(const obj of objects){offsets.push(pdfData.length);pdfData+=obj}
+    const xrefOffset=pdfData.length;
+    pdfData+='xref\n0 5\n0000000000 65535 f \n';
+    pdfData+=offsets.slice(1).map(x=>String(x).padStart(10,'0')+' 00000 n \n').join('');
+    pdfData+='trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n'+xrefOffset+'\n%%EOF\n';
+    StudioDropbox.downloadSharedLink=async()=>new TextEncoder().encode(pdfData);
     const mod=await import('./pdf-reader.js');
     const initial={page:1,mode:'pan',notes:{'1':[{x:.3,y:.2,text:'Original saved instruction'}]}};
     window.pdfNotesState=initial;
