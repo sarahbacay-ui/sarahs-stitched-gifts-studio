@@ -199,3 +199,17 @@
  .dashboard .counter-card .row.spread{flex-wrap:wrap}
  .dashboard .studio-reader-inline .studio-reader-scroll{height:auto;aspect-ratio:16/9;max-height:none}
 }
+
+/* PDF note markers and note viewer */
+.studio-reader-note-pin{display:grid;place-items:center;width:36px;height:36px;min-width:36px;transform:translate(-50%,-50%);padding:0;border:1px solid rgba(13,101,102,.38);border-radius:50%;background:rgba(50,171,164,.40);color:#065a5a;box-shadow:0 1px 5px rgba(9,80,82,.16);cursor:pointer;touch-action:manipulation}
+.studio-reader-note-pin:hover,.studio-reader-note-pin:focus-visible{background:rgba(50,171,164,.60);outline:2px solid #116c6b;outline-offset:2px}
+.studio-reader-note-pin svg{pointer-events:none}
+.studio-reader-note-dialog{position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(28,36,35,.40)}
+.studio-reader-note-panel{width:min(420px,100%);max-height:85dvh;overflow:auto;display:flex;flex-direction:column;gap:13px;background:#fffdfa;border:1px solid #c5dcd6;border-radius:16px;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.20)}
+.studio-reader-note-panel h3{margin:0;font-size:19px}
+.studio-reader-note-content{padding:12px;margin:0;min-height:60px;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #d9e3df;border-radius:8px;background:#f7faf8}
+.studio-reader-note-editor{width:100%;min-height:116px;resize:vertical;border:1px solid #a9bbb5;border-radius:8px;padding:12px;background:#fff;color:#302c28}
+.studio-reader-note-actions{display:flex;gap:9px;flex-wrap:wrap}
+.studio-reader-note-actions .button{min-height:44px;flex:1}
+.studio-reader-note-delete{border:1px solid #b9473b;color:#9e3027}
+@media(max-width:650px){.studio-reader-note-panel{padding:16px}.studio-reader-note-actions{flex-direction:column}.studio-reader-note-pin{width:40px;height:40px}}
