@@ -1,6 +1,90 @@
 const {chromium,webkit,devices}=require('playwright');
 const assert=require('node:assert/strict');
+
+async function runSyncPolicyTests(){
+ const vm=require('node:vm');
+ const fs=require('node:fs');
+ const nodeCrypto=require('node:crypto');
+ const source=fs.readFileSync(require('node:path').join(__dirname,'../dropbox.js'),'utf8');
+ const hash=data=>nodeCrypto.createHash('sha256').update(JSON.stringify(data)).digest('hex');
+ const canonical=data=>{const x=structuredClone(data);delete x.active;return x};
+ const doc=data=>{const shared=canonical(data);return {format:'sarah-studio-backup',version:2,checksumAlgorithm:'SHA-256',checksum:hash(shared),exportedAt:new Date().toISOString(),data:shared}};
+ const backend={current:null,rev:0,backups:[]};
+ const success=body=>({ok:true,status:200,json:async()=>structuredClone(body),text:async()=>JSON.stringify(body)});
+ const error=(status,message)=>({ok:false,status,text:async()=>message});
+ const fetchMock=async(url,opts={})=>{
+  const path=new URL(url).pathname;
+  if(path.endsWith('/files/get_metadata'))return backend.current?success({rev:String(backend.rev)}):error(409,'not found');
+  if(path.endsWith('/files/download'))return backend.current?success(backend.current):error(409,'not found');
+  if(path.endsWith('/files/upload')){
+   const args=JSON.parse(opts.headers['Dropbox-API-Arg']);
+   const data=JSON.parse(opts.body);
+   if(args.path==='/studio-current.json'){
+    const mode=args.mode;
+    if(mode['.tag']==='update'&&mode.update!==String(backend.rev))return error(409,'revision changed');
+    if(mode['.tag']==='add'&&backend.current)return error(409,'already exists');
+    backend.current=data;backend.rev++;
+    return success({rev:String(backend.rev)});
+   }
+   backend.backups.push(data);return success({rev:'backup'});
+  }
+  throw Error('Unexpected Dropbox API call: '+url);
+ };
+ function device(initial){
+  let data=structuredClone(initial);
+  const storage=new Map(),session=new Map([['studio-db-token','mock-token'],['studio-db-token-expiry','999999999999999']]);
+  const webStore=map=>({getItem:k=>map.has(k)?map.get(k):null,setItem:(k,v)=>map.set(k,String(v)),removeItem:k=>map.delete(k)});
+  const ctx=vm.createContext({fetch:fetchMock,localStorage:webStore(storage),sessionStorage:webStore(session),crypto:nodeCrypto.webcrypto,TextEncoder,URL,URLSearchParams,structuredClone,Date,console,btoa:x=>Buffer.from(x,'binary').toString('base64'),location:{href:'https://example.org',origin:'https://example.org',pathname:'/'},history:{replaceState(){}}});
+  const dropbox=vm.runInContext(source+'\nStudioDropbox',ctx);
+  const local={
+   checksum:async()=>hash(canonical(data)),
+   checksumOf:async value=>hash(canonical(value)),
+   isDemo:async()=>false,
+   export:async()=>doc(data)
+  };
+  return {
+   get data(){return data},
+   edit:(count,time)=>{data.projects[0].sections[0].count=count;data.updated=time;data.dataChangedAt=time},
+   select:name=>{data.active=name},
+   sync:()=>dropbox.synchronizeAutomatic(local,async remote=>{
+    assert.equal(remote.checksum,hash(canonical(remote.data)),'backup checksum valid');
+   },async(remote,expected)=>{
+    assert.equal(await local.checksum(),expected,'local data unchanged before applying');
+    const active=data.active;data=structuredClone(remote);data.active=active;
+   })
+  };
+ }
+ function state(count,time,active='p1'){
+  return {active,projects:[{id:'p1',name:'Sample',sections:[{id:'s1',count}],versions:[],finishingTasks:[],versionSectionStates:{}}],yarn:[],tools:[],gifts:[],ideas:[],updated:time,dataChangedAt:time};
+ }
+ const t1='2026-11-02T19:00:00.000Z',t2='2026-11-02T19:01:00.000Z',t3='2026-11-02T19:02:00.000Z',t4='2026-11-02T19:03:00.000Z',t5='2026-11-02T19:04:00.000Z';
+ const ipad=device(state(5,t1)),iphone=device(state(5,t1,'other'));
+ assert.equal(await ipad.sync(),'uploaded','first device initializes Dropbox');
+ assert.equal(await iphone.sync(),'already up to date','different selected project is not a data change');
+ ipad.edit(6,t2);assert.equal(await ipad.sync(),'uploaded','iPad row change uploads');
+ assert.equal(await iphone.sync(),'downloaded','iPhone gets iPad edit automatically');
+ assert.equal(iphone.data.projects[0].sections[0].count,6);
+ iphone.edit(7,t3);assert.equal(await iphone.sync(),'uploaded','iPhone newer edit uploads');
+ assert.equal(await ipad.sync(),'downloaded','iPad gets iPhone edit automatically');
+ assert.equal(ipad.data.projects[0].sections[0].count,7);
+ ipad.edit(8,t4);iphone.edit(9,t5);
+ assert.equal(await ipad.sync(),'uploaded','earlier concurrent edit uploads');
+ assert.equal(await iphone.sync(),'uploaded','later concurrent edit replaces earlier one');
+ assert.equal(await ipad.sync(),'downloaded','earlier editing device receives later edit');
+ assert.equal(ipad.data.projects[0].sections[0].count,9);
+ assert.ok(backend.backups.length>=4,'previous data versions are backed up');
+ // Legacy data predates actual-edit tracking; choosing cloud avoids an old
+ // iPhone navigation timestamp taking precedence over the established iPad copy.
+ const legacy=state(2,'2026-11-02T19:50:00.000Z');
+ delete legacy.dataChangedAt;
+ const oldPhone=device(legacy);
+ assert.equal(await oldPhone.sync(),'downloaded','legacy device defers to established cloud records');
+ assert.equal(oldPhone.data.projects[0].sections[0].count,9);
+ console.log('PASS automatic sync: last actual edit wins, both directions, legacy safety, backups');
+}
+
 (async()=>{
+ await runSyncPolicyTests();
  const failures=[];
  for(const [engine,device,options] of [
   ['chromium','desktop',{viewport:{width:1280,height:900}}],
