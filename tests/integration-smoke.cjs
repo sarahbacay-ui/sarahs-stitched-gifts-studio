@@ -236,6 +236,14 @@ async function runSyncPolicyTests(){
    const visual=await pin.first().evaluate(el=>{const css=getComputedStyle(el),icon=getComputedStyle(el.querySelector('svg'));return {background:css.backgroundColor,width:parseInt(icon.width,10),hasText:el.textContent.trim(),transform:css.transform}});
    assert.equal(visual.background,'rgba(0, 0, 0, 0)','note icon has transparent background');
    assert.ok(visual.width<=20,'small note icon');
+   const markerStyle=await pin.first().evaluate(el=>{
+    const style=getComputedStyle(el),svg=getComputedStyle(el.querySelector('svg'));
+    return {color:style.color,opacity:svg.opacity,borderWidth:style.borderTopWidth,borderRadius:style.borderTopLeftRadius,fill:svg.fill};
+   });
+   assert.equal(markerStyle.color,'rgb(224, 173, 0)','page icon is yellow');
+   assert.equal(markerStyle.opacity,'0.4','page icon is 40 percent opaque');
+   assert.equal(markerStyle.borderWidth,'0px','no circular border');
+   assert.equal(markerStyle.borderRadius,'0px','no circular background shape');
    assert.equal(visual.hasText,'','no opaque Note label');
    await page.evaluate(()=>{document.querySelector('.studio-reader-toolbar button[aria-pressed="false"]')?.focus()});
    await page.locator('.studio-reader-toolbar button', {hasText:'Add note'}).click();
