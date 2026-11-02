@@ -238,11 +238,13 @@ async function runSyncPolicyTests(){
    assert.ok(visual.width<=20,'small note icon');
    const markerStyle=await pin.first().evaluate(el=>{
     const style=getComputedStyle(el),svg=getComputedStyle(el.querySelector('svg'));
-    return {color:style.color,opacity:svg.opacity,borderWidth:style.borderTopWidth,borderRadius:style.borderTopLeftRadius,fill:svg.fill};
+    const pageShape=getComputedStyle(el.querySelector('.studio-note-page'));
+    return {color:style.color,opacity:svg.opacity,borderWidth:style.borderTopWidth,borderRadius:style.borderTopLeftRadius,fill:pageShape.fill,stroke:pageShape.stroke};
    });
    assert.equal(markerStyle.color,'rgb(224, 173, 0)','page icon is yellow');
    assert.equal(markerStyle.opacity,'1','page icon has opaque yellow fill');
    assert.equal(markerStyle.fill,'rgb(224, 173, 0)','page glyph interior is solid yellow');
+   assert.equal(markerStyle.stroke,'rgb(17, 125, 124)','page icon retains teal outline');
    assert.equal(markerStyle.borderWidth,'0px','no circular border');
    assert.equal(markerStyle.borderRadius,'0px','no circular background shape');
    assert.equal(visual.hasText,'','no opaque Note label');
@@ -265,6 +267,13 @@ async function runSyncPolicyTests(){
    await page.locator('.studio-reader-note-pin').first().click();
    await page.locator('.studio-reader-note-content').getByText('Edited saved instruction').waitFor();
    // Existing notes can be moved by tapping a new page location, preserving text.
+   await page.locator('.studio-reader-note-actions button', {hasText:'Move'}).click();
+   assert.equal(await page.locator('.studio-reader-note-moving').count(),1,'selected note has move mode styling');
+   assert.equal(await page.locator('.studio-reader-note-pin').evaluate(el=>getComputedStyle(el).touchAction),'none','iOS touch dragging is enabled');
+   assert.equal(await page.locator('button', {hasText:'Cancel move'}).isVisible(),true,'move mode has visible cancel control');
+   await page.locator('button', {hasText:'Cancel move'}).click();
+   assert.equal(await page.locator('.studio-reader-note-moving').count(),0,'cancel exits move mode');
+   await page.locator('.studio-reader-note-pin').click();
    await page.locator('.studio-reader-note-actions button', {hasText:'Move'}).click();
    const pageSize=await page.locator('.studio-reader-overlay').boundingBox();
    await page.locator('.studio-reader-overlay').click({position:{x:Math.floor(pageSize.width*.75),y:Math.floor(pageSize.height*.7)}});
